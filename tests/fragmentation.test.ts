@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { attachNativeSegments } from "../src/lib/checkpoint-reader";
-import { fragmentationSummary } from "../src/lib/fragmentation";
+import {
+  fragmentationSummary,
+  internalFreeBytes,
+} from "../src/lib/fragmentation";
 import type { FileBlock, FileInspection, Segment } from "../src/lib/types";
 const makeBlock = (
   id: number,
@@ -36,6 +39,37 @@ const segment = (
 function fixture() {
   return [-3, -2, -1, 0].map((id) => makeBlock(id));
 }
+test("exact index holes and tails are mapped but never mixed into data-only summary", () => {
+  const index = makeBlock(0, "index");
+  index.usedBytes = 224;
+  index.ranges = [
+    {
+      id: "hole",
+      label: "Free stored slots",
+      kind: "unused",
+      offset: index.offset + 224,
+      size: 32,
+    },
+    {
+      id: "tail",
+      label: "Unallocated index block tail",
+      kind: "unused",
+      offset: index.offset + 256,
+      size: 768,
+    },
+  ];
+  expect(internalFreeBytes(index)).toBe(800);
+  const summary = fragmentationSummary({ blocks: [index] } as FileInspection);
+  expect(summary.bytes).toBe(0);
+  expect(summary.measuredBlocks).toBe(0);
+  expect(summary.dataBytes).toBe(0);
+  index.usedBytes = null;
+  expect(internalFreeBytes(index)).toBeNull();
+  for (const role of ["free", "metadata", "unknown"] as const) {
+    expect(internalFreeBytes({ ...index, role, usedBytes: 224 })).toBeNull();
+  }
+});
+
 test("measures exact internal gaps and tails without counting whole free blocks", () => {
   const blocks = fixture();
   attachNativeSegments(blocks, [segment("a", 8, 100), segment("b", 128, 200)]);

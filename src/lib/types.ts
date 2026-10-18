@@ -1,17 +1,9 @@
+import type { CheckpointDeleteVector } from "./checkpoint-delete";
+
 export type StorageRole =
-  | "header"
-  | "metadata"
-  | "data"
-  | "index"
-  | "free"
-  | "unknown";
+  "header" | "metadata" | "data" | "index" | "free" | "unknown";
 export type ColorMode =
-  | "role"
-  | "table"
-  | "column"
-  | "compression"
-  | "utilization"
-  | "fragmentation";
+  "role" | "table" | "column" | "compression" | "utilization" | "fragmentation";
 export interface ByteRange {
   /** offset is an absolute file byte offset. */
   id: string;
@@ -23,11 +15,13 @@ export interface ByteRange {
     | "header"
     | "metadata"
     | "segment"
+    | "index"
     | "validity"
     | "dictionary"
     | "unused"
     | "unknown";
   segmentId?: string;
+  indexId?: string;
 }
 export interface FileBlock {
   id: number;
@@ -38,6 +32,8 @@ export interface FileBlock {
   usedBytes: number | null;
   ranges: ByteRange[];
   segmentIds: string[];
+  indexIds?: string[];
+  indexOwners?: { id: string; table: string; name: string }[];
   links: number[];
   checksum?: string;
 }
@@ -88,7 +84,81 @@ export interface FreeListState {
   metadata: { blockId: number; freeSlots: number[] }[];
   multiUseBlocks: { blockId: number; references: number }[];
 }
+/** Scalar integer Values are decimal strings to preserve uint64 precision. */
+export type IndexOption = null | boolean | number | string | IndexOption[];
+export interface IndexRoot {
+  packed: string;
+  nodeType: string;
+  typeId: number;
+  gate: boolean;
+  bufferId?: number;
+  slot?: number;
+  inlinedRowId?: string;
+}
+export interface IndexSlotRun {
+  /** Slot coordinates, not individual slot objects. */
+  start: number;
+  count: number;
+  occupied: boolean;
+}
+export interface IndexBuffer {
+  bufferId: number;
+  blockId: number;
+  /** Payload-relative offset; absoluteOffset includes the checksum/header. */
+  offset: number;
+  absoluteOffset: number;
+  allocationSize: number;
+  segmentCount: number;
+  storedSlots: number;
+  occupiedBytes: number;
+  freeBytes: number;
+  hasFreeSpace: boolean;
+  runs: IndexSlotRun[];
+}
+export interface IndexAllocator {
+  ordinal: number;
+  nodeType: string;
+  segmentSize: number;
+  /** Logical slot capacity per buffer, including slots outside the persisted envelope. */
+  capacity: number;
+  maskBytes: number;
+  occupiedSlots: number;
+  occupiedBytes: number;
+  freeBytes: number;
+  maskOverheadBytes: number;
+  allocationBytes: number;
+  buffers: IndexBuffer[];
+}
+export interface IndexInspection {
+  id: string;
+  table: string;
+  name: string;
+  root: string;
+  rootPointer: IndexRoot;
+  legacyRootPointer?: { blockId: number; offset: number };
+  options: Record<string, IndexOption>;
+  complete: boolean;
+  reason?: string;
+  /** Known referenced blocks, also available for unsupported layouts. */
+  blockIds: number[];
+  blockChecksums?: Record<number, string>;
+  occupiedBytes: number | null;
+  freeBytes: number | null;
+  maskOverheadBytes: number | null;
+  allocationBytes: number | null;
+  allocators: IndexAllocator[];
+}
+export interface NativeRowGroup {
+  table: string;
+  rowGroup: number;
+  rowStart: number;
+  physicalRows: number;
+  deletedRows: number;
+  liveRows: number;
+  deleteVectors: CheckpointDeleteVector[];
+}
 export interface FileInspection {
+  indexes?: IndexInspection[];
   freeList?: FreeListState;
   name: string;
   fileSize: number;
@@ -99,9 +169,12 @@ export interface FileInspection {
     tables: number;
     rowGroups: number;
     complete: boolean;
+    rowGroupsInfo?: NativeRowGroup[];
     catalog?: {
       name: string;
       rows: number;
+      deletedRows?: number;
+      liveRows?: number;
       columns: { name: string; type: string }[];
       rowGroups: number;
     }[];

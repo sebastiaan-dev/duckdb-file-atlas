@@ -1,4 +1,40 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+/** Opt-in native fixture: set DUCKDB_BIN to a v69-capable DuckDB CLI. */
+export async function indexDatabaseFixture() {
+  if (!process.env.DUCKDB_BIN) throw new Error("DUCKDB_BIN is required");
+  const directory = await mkdtemp(join(tmpdir(), "atlas-browser-index-"));
+  const path = join(directory, "indexes.duckdb");
+  try {
+    await promisify(execFile)(process.env.DUCKDB_BIN, [
+      "-no-agent",
+      "-batch",
+      "-c",
+      `
+      ATTACH '${path.replaceAll("'", "''")}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+      CREATE TABLE db.t AS SELECT i, i % 13 AS duplicate FROM range(15000) t(i);
+      CREATE INDEX named_id ON db.t(i);
+      CREATE INDEX named_duplicate ON db.t(duplicate);
+      CREATE TABLE db.empty(i BIGINT); CREATE INDEX empty_idx ON db.empty(i);
+      CHECKPOINT db;
+      DELETE FROM db.t WHERE i % 3 = 0;
+      CHECKPOINT db;
+    `,
+    ]);
+    return {
+      name: "browser-indexes.duckdb",
+      mimeType: "application/octet-stream",
+      buffer: await readFile(path),
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 export const DATA_START = 3 * 4096;
 export const BLOCK_SIZE = 16384;

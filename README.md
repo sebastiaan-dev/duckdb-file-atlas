@@ -4,7 +4,7 @@ DuckDB File Atlas reads a local DuckDB database directly in your browser. It tra
 
 The parser runs in a background worker, reads bounded slices of the file, and verifies each metadata block it traverses. Segment sizes come from the checkpoint’s optional `byte_size` field. Constants that have no physical block occupy zero physical bytes, even when DuckDB records a nonzero codec size.
 
-The overview and **Internal free space** color mode measure gaps and unused tails only in completely mapped data blocks. They show coverage and exclude whole free blocks. Index and string overflow allocations are identified but their internal free bytes remain unmeasured. Missing recorded sizes stay unknown; segment lengths are never estimated from neighboring pointers. Empty and nested columns are handled separately from physical data allocations.
+The overview measures gaps and unused tails only in completely mapped data blocks. It shows coverage and excludes whole free blocks. The **Internal free space** map color also supports completely measured index blocks; the inspector distinguishes reusable allocator-slot holes from unallocated alignment gaps and tails. Supported ART allocator masks are inspected separately from column fragmentation, while string overflow allocations remain unmeasured internally. Missing recorded sizes stay unknown; segment lengths are never estimated from neighboring pointers. Empty and nested columns are handled separately from physical data allocations.
 
 An optional companion exporter remains available as a fallback when the native decoder encounters an unsupported catalog or storage feature:
 
@@ -84,7 +84,8 @@ The SQL ends with `CHECKPOINT` so the file is self-contained before the read-onl
 
 - DuckDB storage version 69 (`v2.0.0`) only.
 - Unencrypted, checkpointed, single-file databases.
-- Native catalog, row-group, persistent column, statistics, and recorded byte-size traversal.
+- Native catalog, row-group, persistent column, statistics, recorded byte-size, and checkpoint deletion-mask traversal.
+- Named index ownership, packed-root summaries, and supported ART allocator-mask occupancy with verified block checksums. Unsupported retained index layouts have local explanations and unknown occupancy rather than guessed sizes.
 - Browser discovery is capped at 100,000 physical blocks. Metadata decoding is bounded by a 128 MiB cache, 4,096 slots per stream, one million traversal steps, and 64 object levels. Unsupported or incomplete native decoding falls back to physical inspection with an explanation.
 - Unknown bytes remain unknown. Free space is reported only when verified from the file's free list.
 
@@ -111,6 +112,23 @@ The logical map uses its own color modes and remembers its selection independent
 - **Null fraction:** exact null counts, or 0%/100% confirmed by checkpoint statistics. Mixed null presence alone never supplies a percentage.
 
 All scales and column medians use the full inspection, so filtering and progressive loading do not shift the baseline. Missing measurements stay gray. Hover or select a segment to read its measurement.
+
+## Checkpoint structure exploration
+
+The **Indexes** view exposes table/index names, root pointer types, allocator node classes, and persisted buffer envelopes. Occupied fixed-size slots, free stored-slot holes, and mask overhead are measured from checksummed allocator blocks. Expand an allocator to explore buffers and inspect their physical blocks. Logical capacity beyond a persisted envelope is not counted as physical bytes; index-block alignment gaps and tails are separate from allocator holes. Full ART nodes, key prefixes, and leaf values are not decoded yet.
+
+Metadata block byte layouts now distinguish consumed catalog, table-statistics, row-group, column, and deletion-mask records. Dense strips use exact SVG paths rather than one DOM element per range, and the range list reveals additional rows on request. Unclassified allocated metadata remains allocated, not free. Shared streams retain shared provenance, and consumed records are split across metadata-slot boundaries without including checksum or stream-link bytes.
+
+Logical row groups and segment details show **physical**, **live**, and **deleted** row counts for the active checkpoint. Deletion masks use checkpoint visibility, not WAL or transaction history, and deleted rows are not claimed as physically reclaimed bytes. Column segment row counts still describe their stored row spans, including tombstones.
+
+Run native parser and browser coverage with a compatible CLI:
+
+```sh
+DUCKDB_BIN=/path/to/duckdb bun test
+DUCKDB_BIN=/path/to/duckdb bun run test:browser
+```
+
+Native browser coverage is optional; the ordinary browser fixtures require no DuckDB executable.
 
 ### Free-list tracking
 

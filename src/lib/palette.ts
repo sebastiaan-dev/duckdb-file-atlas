@@ -44,10 +44,20 @@ export function blockOwners(
 ) {
   const owners = segments.filter((segment) => segment.blockId === block.id);
   if (mode === "table")
-    return [...new Set(owners.map((segment) => segment.table))];
+    return [
+      ...new Set([
+        ...owners.map((segment) => segment.table),
+        ...(block.indexOwners ?? []).map((index) => index.table),
+      ]),
+    ];
   if (mode === "column")
     return [
-      ...new Set(owners.map((segment) => `${segment.table}.${segment.column}`)),
+      ...new Set([
+        ...owners.map((segment) => `${segment.table}.${segment.column}`),
+        ...(block.indexOwners ?? []).map(
+          (index) => `${index.table} / ${index.name}`,
+        ),
+      ]),
     ];
   if (mode === "compression")
     return [...new Set(owners.map((segment) => segment.compression))];

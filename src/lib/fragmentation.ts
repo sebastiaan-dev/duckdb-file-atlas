@@ -1,7 +1,8 @@
 import type { FileInspection, FileBlock } from "./types";
 
 export function internalFreeBytes(block: FileBlock): number | null {
-  if (block.role !== "data" || block.usedBytes == null) return null;
+  if (!["data", "index"].includes(block.role) || block.usedBytes == null)
+    return null;
   return block.ranges
     .filter((range) => range.kind === "unused")
     .reduce((sum, range) => sum + range.size, 0);

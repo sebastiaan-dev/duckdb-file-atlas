@@ -6,7 +6,21 @@ import {
 } from "./binary-reader";
 import { decodeCatalog } from "./checkpoint-catalog";
 import { readColumn, readTableStatistics } from "./checkpoint-column";
-import type { ByteRange, FileBlock, FileInspection, Segment } from "./types";
+import { decodeCheckpointDeletes } from "./checkpoint-delete";
+import { inspectIndexes, attachIndexRanges } from "./checkpoint-index";
+import {
+  mapMetadataSpan,
+  refineMetadataRanges,
+  type MetadataRange,
+  type PhysicalChunk,
+} from "./checkpoint-ranges";
+import type {
+  ByteRange,
+  FileBlock,
+  FileInspection,
+  NativeRowGroup,
+  Segment,
+} from "./types";
 
 const INVALID = 0xffffffffffffffffn;
 const BLOCK_MASK = (1n << 56n) - 1n;
@@ -18,6 +32,8 @@ class MetadataStore {
   readonly blocks = new Map<number, Uint8Array>();
   readonly visited = new Map<number, Set<number>>();
   readonly links = new Map<number, Set<number>>();
+  readonly spans: MetadataRange[] = [];
+  private readonly sources = new WeakMap<BinaryReader, PhysicalChunk[]>();
   private slots = 0;
   private traversals = 0;
   private readonly slotSize: number;
@@ -42,6 +58,14 @@ class MetadataStore {
       throw new Error("Corrupt checkpoint pointer references a free block.");
     return { blockId, slot };
   }
+  record(reader: BinaryReader, start: number, label: string, id: string) {
+    const chunks = this.sources.get(reader);
+    if (!chunks) throw new Error("Corrupt checkpoint metadata provenance.");
+    const spans = mapMetadataSpan(chunks, start, reader.offset, label, id);
+    if (this.spans.length + spans.length > 100_000)
+      throw new Error("Checkpoint metadata range work limit exceeded.");
+    this.spans.push(...spans);
+  }
   async open(pointer: MetaPointer): Promise<BinaryReader> {
     let raw = pointer.blockPointer;
     let offset = Math.max(8, pointer.offset);
@@ -49,6 +73,7 @@ class MetadataStore {
       throw new Error("Corrupt checkpoint metadata offset.");
     const seen = new Set<bigint>();
     const chunks: Uint8Array[] = [];
+    const sources: PhysicalChunk[] = [];
     let previousBlock: number | undefined;
     while (raw !== INVALID) {
       if (seen.has(raw) || seen.size >= 4096)
@@ -121,11 +146,17 @@ class MetadataStore {
         8,
       ).getBigUint64(0, true);
       chunks.push(bytes.subarray(start + offset, start + this.slotSize));
+      sources.push({
+        offset: block.offset + start + offset,
+        length: this.slotSize - offset,
+      });
       previousBlock = blockId;
       raw = next;
       offset = 8;
     }
-    return new BinaryReader(chunks);
+    const reader = new BinaryReader(chunks);
+    this.sources.set(reader, sources);
+    return reader;
   }
 }
 
@@ -184,6 +215,9 @@ export async function inspectCheckpoint(
     offset: 0,
   });
   const tables = decodeCatalog(catalog);
+  store.record(catalog, 0, "Checkpoint catalog", "catalog");
+  const rowGroupsInfo: NativeRowGroup[] = [];
+  let deleteRangeCount = 0;
   const segments: Segment[] = [];
   const auxiliary = new Set<number>();
   const indexBlocks = new Set<number>();
@@ -191,24 +225,52 @@ export async function inspectCheckpoint(
   const catalogSummary: NonNullable<FileInspection["native"]>["catalog"] = [];
   for (const table of tables) {
     const reader = await store.open(table.pointer);
+    const statsStart = reader.offset;
     readTableStatistics(
       reader,
       table.columns.map((column) => column.type),
     );
+    store.record(
+      reader,
+      statsStart,
+      `${table.name}: table statistics`,
+      `stats:${table.name}`,
+    );
+    const countStart = reader.offset;
     const count = safeInteger(reader.fixedU64());
-    catalogSummary.push({
+    store.record(
+      reader,
+      countStart,
+      `${table.name}: row-group count`,
+      `group-count:${table.name}`,
+    );
+    const tableSummary = {
       name: table.name,
       rows: table.totalRows,
+      deletedRows: 0,
+      liveRows: 0,
       columns: table.columns.map((column) => ({
         name: column.name,
         type: column.type.name,
       })),
       rowGroups: count,
-    });
+    };
+    catalogSummary.push(tableSummary);
+    let physicalRows = 0;
     if (count > 100_000)
       throw new Error("Checkpoint row-group count exceeds the browser limit.");
     for (let group = 0; group < count; group++) {
+      const rowStart = reader.offset;
       const row = readRowGroup(reader);
+      store.record(
+        reader,
+        rowStart,
+        `${table.name}: row group ${group}`,
+        `row-group:${table.name}:${group}`,
+      );
+      physicalRows += row.count;
+      if (!Number.isSafeInteger(physicalRows))
+        throw new Error("Corrupt checkpoint row count.");
       rowGroups++;
       if (row.columns.length !== table.columns.length)
         throw new Error("Unsupported checkpoint column layout.");
@@ -219,6 +281,7 @@ export async function inspectCheckpoint(
       ) {
         const column = table.columns[columnIndex];
         const columnReader = await store.open(row.columns[columnIndex]);
+        const columnStart = columnReader.offset;
         const decoded = readColumn(columnReader, column.type, {
           table: table.name,
           column: column.name,
@@ -226,6 +289,12 @@ export async function inspectCheckpoint(
           rowStart: row.start,
           rowCount: row.count,
         });
+        store.record(
+          columnReader,
+          columnStart,
+          `${table.name}.${column.name}: column metadata (row group ${group})`,
+          `column:${table.name}:${columnIndex}:${group}`,
+        );
         for (const segment of decoded) {
           segment.rowGroupRowStart = row.start;
           segment.rowGroupRowCount = row.count;
@@ -241,8 +310,41 @@ export async function inspectCheckpoint(
             "Checkpoint segment count exceeds the browser limit.",
           );
       }
-      for (const pointer of row.deletes) await store.open(pointer);
+      const deleteReader = row.deletes.length
+        ? await store.open(row.deletes[0])
+        : null;
+      const deletes = deleteReader
+        ? decodeCheckpointDeletes(deleteReader, physical.vectorSize, row.count)
+        : { deletedRows: 0, vectors: [] };
+      if (deleteReader)
+        store.record(
+          deleteReader,
+          0,
+          `${table.name}: deletion masks (row group ${group})`,
+          `deletes:${table.name}:${group}`,
+        );
+      deleteRangeCount += deletes.vectors.reduce(
+        (sum, vector) => sum + vector.deletedRanges.length,
+        0,
+      );
+      if (deleteRangeCount > 262_144)
+        throw new Error("Checkpoint deletion range work limit exceeded.");
+      tableSummary.deletedRows += deletes.deletedRows;
+      tableSummary.liveRows += row.count - deletes.deletedRows;
+      rowGroupsInfo.push({
+        table: table.name,
+        rowGroup: group,
+        rowStart: row.start,
+        physicalRows: row.count,
+        deletedRows: deletes.deletedRows,
+        liveRows: row.count - deletes.deletedRows,
+        deleteVectors: deletes.vectors,
+      });
     }
+    if (physicalRows !== table.totalRows)
+      throw new Error(
+        `Corrupt checkpoint: ${table.name} row-group counts disagree with its catalog.`,
+      );
     for (const index of table.indexes) {
       for (const allocator of index.allocatorInfos) {
         for (const pointer of allocator.blockPointers) {
@@ -253,7 +355,7 @@ export async function inspectCheckpoint(
       }
     }
   }
-  const blocks = physical.blocks.map((block) => ({
+  let blocks = physical.blocks.map((block) => ({
     ...block,
     ranges: block.ranges.map((range) => ({ ...range })),
     segmentIds: [...block.segmentIds],
@@ -305,6 +407,16 @@ export async function inspectCheckpoint(
       : "String overflow allocation";
   }
   attachNativeSegments(blocks, segments, auxiliary, indexBlocks);
+  blocks = refineMetadataRanges(blocks, store.spans);
+  const indexes = await inspectIndexes(
+    file,
+    { ...physical, blocks },
+    tables.flatMap((table) =>
+      table.indexes.map((index) => ({ table: table.name, index })),
+    ),
+    checksum,
+  );
+  attachIndexRanges(blocks, indexes);
   const warnings = physical.warnings.filter(
     (w) =>
       !w.startsWith("Catalog objects") &&
@@ -317,13 +429,22 @@ export async function inspectCheckpoint(
     warnings.push(
       "Some segment byte sizes are absent in the checkpoint; affected block gaps remain unknown.",
     );
-  if (auxiliary.size || indexBlocks.size)
+  if (indexes.length)
     warnings.push(
-      "Index and overflow allocations are identified, but their internal free bytes are not measured.",
+      "Index ownership and supported allocator masks were inspected; occupied slots are measured, but ART node contents and key values are not decoded.",
+    );
+  if (indexes.some((index) => !index.complete))
+    warnings.push(
+      "Some index layouts are unsupported or exceed bounded inspection; their occupancy remains unknown.",
+    );
+  if (auxiliary.size)
+    warnings.push(
+      "Overflow allocations are identified, but their internal free bytes are not measured.",
     );
   return {
     ...physical,
     blocks,
+    indexes,
     segments,
     warnings,
     capabilities: {
@@ -335,6 +456,7 @@ export async function inspectCheckpoint(
       tables: tables.length,
       rowGroups,
       complete: true,
+      rowGroupsInfo,
       catalog: catalogSummary,
     },
   };

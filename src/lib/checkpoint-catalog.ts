@@ -6,6 +6,8 @@ import {
   type MetaPointer,
 } from "./binary-reader";
 
+import type { IndexOption } from "./types";
+
 /** Logical type information needed to interpret each table's column tree. */
 export interface LogicalType {
   id: number;
@@ -24,9 +26,16 @@ export interface CatalogColumn {
 export interface IndexStorage {
   name: string;
   root: bigint;
+  /** Older metadata-root format: ownership cannot be inferred from this pointer. */
+  legacyRootPointer?: { blockId: number; offset: number };
+  options: Record<string, IndexOption>;
   allocatorInfos: {
     segmentSize: number;
+    bufferIds: number[];
     blockPointers: { blockId: number; offset: number }[];
+    segmentCounts: number[];
+    allocationSizes: number[];
+    freeBufferIds: number[];
   }[];
 }
 export interface CatalogTable {
@@ -309,9 +318,21 @@ function readTableEntry(reader: BinaryReader): CatalogTable {
   reader.field(102);
   const totalRows = reader.uint();
   reader.field(103);
-  reader.list(() => readBlockPointer(reader)); // obsolete v1 index block pointers, empty in v69
+  const legacyPointers = reader.list(() => readBlockPointer(reader));
   reader.field(104);
   const indexes = reader.list(() => readIndexStorageInfo(reader));
+  for (const [ordinal, pointer] of legacyPointers.entries()) {
+    if (pointer.blockId < -1)
+      throw new Error("Corrupt legacy index root pointer.");
+    if (pointer.blockId >= 0)
+      indexes.push({
+        name: `Legacy index ${ordinal + 1} (name unavailable)`,
+        root: 0n,
+        legacyRootPointer: pointer,
+        options: {},
+        allocatorInfos: [],
+      });
+  }
   reader.field(105);
   reader.uint(); // next_row_id; totalRows remains the row group count source used by the scanner
 
@@ -647,8 +668,10 @@ function readIndexStorageInfo(reader: BinaryReader): IndexStorage {
     const allocatorInfos = reader.optional(102)
       ? reader.list(() => readFixedSizeAllocatorInfo(reader))
       : [];
-    readStringMapOptional(reader, 103, () => readValue(reader));
-    return { name, root, allocatorInfos };
+    const options = Object.fromEntries(
+      readStringMapOptional(reader, 103, () => readValue(reader)),
+    );
+    return { name, root, allocatorInfos, options };
   });
 }
 
@@ -657,14 +680,29 @@ function readFixedSizeAllocatorInfo(
 ): IndexStorage["allocatorInfos"][number] {
   return reader.object(() => {
     const segmentSize = reader.optional(100) ? reader.uint() : 0;
-    if (reader.optional(101)) reader.list(() => reader.unsigned());
+    const bufferIds = reader.optional(101)
+      ? reader.list(() => reader.uint())
+      : [];
     const blockPointers = reader.optional(102)
       ? reader.list(() => readBlockPointer(reader))
       : [];
-    if (reader.optional(103)) reader.list(() => reader.unsigned());
-    if (reader.optional(104)) reader.list(() => reader.unsigned());
-    if (reader.optional(105)) reader.list(() => reader.unsigned());
-    return { segmentSize, blockPointers };
+    const segmentCounts = reader.optional(103)
+      ? reader.list(() => reader.uint())
+      : [];
+    const allocationSizes = reader.optional(104)
+      ? reader.list(() => reader.uint())
+      : [];
+    const freeBufferIds = reader.optional(105)
+      ? reader.list(() => reader.uint())
+      : [];
+    return {
+      segmentSize,
+      bufferIds,
+      blockPointers,
+      segmentCounts,
+      allocationSizes,
+      freeBufferIds,
+    };
   });
 }
 
@@ -792,26 +830,27 @@ function readExtensionTypeInfo(reader: BinaryReader): void {
   if (reader.optional(101)) readStringMap(reader, () => readValue(reader));
 }
 
-function readValue(reader: BinaryReader, typeHint?: LogicalType): void {
-  reader.object(() => readValueFields(reader, typeHint));
+function readValue(reader: BinaryReader, typeHint?: LogicalType): IndexOption {
+  return reader.object(() => readValueFields(reader, typeHint));
 }
 
-function readValueFields(reader: BinaryReader, typeHint?: LogicalType): void {
+function readValueFields(
+  reader: BinaryReader,
+  typeHint?: LogicalType,
+): IndexOption {
   const type = reader.optional(100) ? readLogicalType(reader) : typeHint;
   if (!type)
     fail("Value omitted its logical type and has no parent type context");
   reader.field(101);
-  if (reader.bool()) return;
+  if (reader.bool()) return null;
   if (type.id === 6) {
     reader.field(102);
-    readLogicalType(reader);
-    return;
+    return readLogicalType(reader).name;
   }
   reader.field(102);
   switch (type.id) {
     case 10:
-      reader.bool();
-      return;
+      return reader.bool();
     case 11:
     case 12:
     case 13:
@@ -825,51 +864,40 @@ function readValueFields(reader: BinaryReader, typeHint?: LogicalType): void {
     case 27:
       // Interval is also represented as a pair of integer LEB128 words in the value stream.
       if (type.id === 27) {
-        reader.signed();
-        reader.signed();
-        reader.signed();
-      } else reader.signed();
-      return;
+        return [
+          reader.signed().toString(),
+          reader.signed().toString(),
+          reader.signed().toString(),
+        ];
+      } else return reader.signed().toString();
     case 21: {
       const width = type.width ?? 18;
-      if (width <= 4) reader.signed();
-      else if (width <= 9) reader.signed();
-      else if (width <= 18) reader.signed();
-      else {
-        reader.signed();
-        reader.unsigned();
-      }
-      return;
+      if (width <= 18) return reader.signed().toString();
+      return [reader.signed().toString(), reader.unsigned().toString()];
     }
     case 22:
-      reader.f32();
-      return;
+      return reader.f32();
     case 23:
-      reader.f64();
-      return;
+      return reader.f64();
     case 24:
     case 25:
     case 26:
     case 39:
     case 60:
-      reader.string();
+      const value = reader.string();
       if (type.id === 60 && reader.optional(103)) reader.uint();
-      return;
+      return value;
     case 28:
     case 29:
     case 30:
     case 31:
-      reader.unsigned();
-      return;
+      return reader.unsigned().toString();
     case 49:
     case 50:
     case 54:
-      reader.signed();
-      reader.unsigned();
-      return;
+      return [reader.signed().toString(), reader.unsigned().toString()];
     case 104:
-      reader.unsigned();
-      return;
+      return reader.unsigned().toString();
     case 100:
     case 101:
     case 102:
@@ -878,6 +906,7 @@ function readValueFields(reader: BinaryReader, typeHint?: LogicalType): void {
     case 109:
     case 110: {
       const children = type.children ?? [];
+      const values: IndexOption[] = [];
       reader.object(() => {
         reader.field(100);
         const nestedCount = reader.uint();
@@ -889,10 +918,10 @@ function readValueFields(reader: BinaryReader, typeHint?: LogicalType): void {
               : type.id === 102
                 ? children[index]?.type
                 : children[index]?.type;
-          reader.object(() => readValueFields(reader, childType));
+          values.push(reader.object(() => readValueFields(reader, childType)));
         }
       });
-      return;
+      return values;
     }
     default:
       fail(`Value storage type ${type.name}`);

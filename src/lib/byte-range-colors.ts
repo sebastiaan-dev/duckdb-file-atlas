@@ -3,14 +3,22 @@ import {
   compressionPalette,
   stableColor,
   tablePalette,
+  roleColors,
 } from "./palette";
-import type { ByteRange, ColorMode, FileBlock, Segment } from "./types";
+import type {
+  ByteRange,
+  ColorMode,
+  FileBlock,
+  IndexInspection,
+  Segment,
+} from "./types";
 
 const kinds: Record<ByteRange["kind"], { label: string; background: string }> =
   {
     checksum: { label: "Checksum", background: "#f1ba7e" },
     header: { label: "Header", background: "#c7b1dd" },
     metadata: { label: "Metadata", background: "#b3a0d3" },
+    index: { label: "Index nodes", background: roleColors.index },
     segment: { label: "Segment data", background: "#7065db" },
     validity: { label: "Validity", background: "#82a8d4" },
     dictionary: { label: "Dictionary", background: "#d7b86f" },
@@ -28,16 +36,32 @@ export function byteRangeAppearance(
   block: FileBlock,
   mode: ColorMode,
   segment?: Segment,
+  index?: Pick<IndexInspection, "table" | "name">,
 ): { label: string; background: string } {
   if (range.kind === "unused" && block.role === "free")
     return { label: "Reusable free block", background: "var(--byte-free)" };
-  const owned = ["segment", "validity", "dictionary"].includes(range.kind);
+  const owned = ["segment", "validity", "dictionary", "index"].includes(
+    range.kind,
+  );
   if (mode === "role" || !owned) return kinds[range.kind];
   if (mode === "utilization" || mode === "fragmentation")
     return {
       label: mode === "utilization" ? "Space used" : "Internal free space",
       background: blockColor(block, mode, []),
     };
+  if (range.kind === "index") {
+    if (mode === "compression" || !index)
+      return {
+        label:
+          mode === "compression"
+            ? "Unknown compression (index nodes)"
+            : "Unknown index ownership",
+        background: roleColors.unknown,
+      };
+    const owner =
+      mode === "table" ? index.table : `${index.table} / ${index.name}`;
+    return { label: owner, background: stableColor(owner, tablePalette) };
+  }
   if (!segment) return kinds[range.kind];
   const owner =
     mode === "table"

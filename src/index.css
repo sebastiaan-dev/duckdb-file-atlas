@@ -1111,6 +1111,20 @@ summary:focus-visible {
   background: var(--chart-empty);
   border-radius: 5px;
 }
+.dense-byte-strip {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.range-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font: 9px var(--mono);
+}
 .byte-range {
   position: absolute;
   top: 0;
@@ -2454,5 +2468,102 @@ summary:focus-visible {
   .free-run-overview-axis i:nth-child(2),
   .free-run-overview-axis i:nth-child(4) {
     visibility: hidden;
+  }
+}
+
+.index-view {
+  padding: 20px;
+}
+.index-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.index-metrics div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.index-metrics span,
+.index-card h3 small,
+.index-allocator small,
+.index-buffer > small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
+}
+.index-metrics strong {
+  font-size: 16px;
+}
+.index-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+.index-card h3 {
+  font-size: 14px;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+.index-card h3 small {
+  display: block;
+  margin-top: 4px;
+}
+.index-root {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.index-incomplete {
+  color: var(--muted);
+  font-size: 12px;
+  border-left: 3px solid #c6a565;
+  padding-left: 10px;
+}
+.index-allocator {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.index-allocator summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.index-allocator summary small {
+  margin-left: 8px;
+}
+.index-allocator[open] > .index-metrics {
+  margin-top: 16px;
+}
+.index-buffer-list {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0;
+}
+.index-buffer > small {
+  display: block;
+  margin: 6px 0;
+}
+.index-slot-bar {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--chart-unknown);
+}
+.index-slot-bar span {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+@media (max-width: 700px) {
+  .index-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .index-allocator summary small {
+    display: block;
+    margin: 4px 0;
   }
 }

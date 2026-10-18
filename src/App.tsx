@@ -1,3 +1,5 @@
+import { IndexView } from "@/components/index-view";
+import { DenseByteStrip } from "@/components/dense-byte-strip";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
 import {
@@ -78,11 +80,13 @@ import type {
   ColorMode,
   FileBlock,
   FileInspection,
+  IndexInspection,
+  NativeRowGroup,
   Segment,
   StorageRole,
 } from "@/lib/types";
 
-type ViewMode = "physical" | "logical" | "free-list";
+type ViewMode = "physical" | "logical" | "free-list" | "indexes";
 type ByteView = { blockId: number; offset: number; bytes: Uint8Array } | null;
 
 function formatBytes(value: number | null | undefined, precise = false) {
@@ -115,6 +119,8 @@ function HeaderIcon({ mode }: { mode: ViewMode }) {
   return mode === "physical" ? (
     <HardDrive size={15} />
   ) : mode === "free-list" ? (
+    <ListTree size={15} />
+  ) : mode === "indexes" ? (
     <ListTree size={15} />
   ) : (
     <Layers3 size={15} />
@@ -255,7 +261,7 @@ export default function App() {
     () =>
       inspection.blocks.map((block) => ({
         block,
-        text: `${block.id} ${block.label} ${block.role}`.toLocaleLowerCase(),
+        text: `${block.id} ${block.label} ${block.role} ${(block.indexOwners ?? []).map((index) => `${index.table} ${index.name}`).join(" ")}`.toLocaleLowerCase(),
       })),
     [inspection.blocks],
   );
@@ -803,7 +809,7 @@ export default function App() {
                 </small>
               </div>
               <div className="support-metric">
-                <span className="eyebrow">INTERNAL FREE SPACE</span>
+                <span className="eyebrow">DATA INTERNAL FREE SPACE</span>
                 <strong
                   title={`${formatNumber(fragmentation.bytes)} bytes in completely mapped data blocks`}
                 >
@@ -911,6 +917,10 @@ export default function App() {
                   <Layers3 size={14} />
                   Logical map
                 </TabsTrigger>
+                <TabsTrigger value="indexes">
+                  <ListTree size={14} />
+                  Indexes
+                </TabsTrigger>
                 <TabsTrigger value="free-list">
                   <ListTree size={14} />
                   Free list
@@ -927,14 +937,18 @@ export default function App() {
                     setQuery(event.target.value);
                   }}
                   placeholder={
-                    view === "free-list"
-                      ? "Find a free block ID…"
-                      : "Find a block, table, column…"
+                    view === "indexes"
+                      ? "Find an index or table…"
+                      : view === "free-list"
+                        ? "Find a free block ID…"
+                        : "Find a block, table, column…"
                   }
                   aria-label={
-                    view === "free-list"
-                      ? "Search free block IDs"
-                      : "Search blocks, tables, or columns"
+                    view === "indexes"
+                      ? "Search indexes or tables"
+                      : view === "free-list"
+                        ? "Search free block IDs"
+                        : "Search blocks, tables, or columns"
                   }
                 />
                 {query ? (
@@ -951,7 +965,7 @@ export default function App() {
                   <kbd>⌘ K</kbd>
                 )}
               </label>
-              {view !== "free-list" && (
+              {(view === "physical" || view === "logical") && (
                 <label className="color-select-label">
                   <span>Color</span>
                   <select
@@ -1035,20 +1049,24 @@ export default function App() {
                       <h2>
                         {view === "physical"
                           ? "Disk blocks"
-                          : view === "free-list"
-                            ? "Free list"
-                            : "Row groups & columns"}
+                          : view === "indexes"
+                            ? "Indexes"
+                            : view === "free-list"
+                              ? "Free list"
+                              : "Row groups & columns"}
                       </h2>
                       <span className="count-label">
                         {formatNumber(
                           view === "physical"
                             ? dataBlocks.length
-                            : view === "free-list"
-                              ? inspection.freeList?.complete
-                                ? inspection.freeList.blockIds.length +
-                                  inspection.freeList.implicitBlockIds.length
-                                : null
-                              : filteredSegments.length,
+                            : view === "indexes"
+                              ? (inspection.indexes?.length ?? 0)
+                              : view === "free-list"
+                                ? inspection.freeList?.complete
+                                  ? inspection.freeList.blockIds.length +
+                                    inspection.freeList.implicitBlockIds.length
+                                  : null
+                                : filteredSegments.length,
                         )}
                       </span>
                     </div>
@@ -1160,9 +1178,22 @@ export default function App() {
                     <Legend
                       mode={colorMode}
                       semanticReady={semanticReady}
+                      indexes={inspection.indexes}
                       segments={inspection.segments}
                     />
                   </div>
+                ) : view === "indexes" ? (
+                  <IndexView
+                    key={inspection.headerFingerprint ?? inspection.name}
+                    inspection={inspection}
+                    query={deferredQuery}
+                    onPick={(id) => {
+                      if (!blocksById.has(id)) return;
+                      setSelectedBlockId(id);
+                      setSelectedSegmentId(null);
+                      setSelectedHeaderSlot(null);
+                    }}
+                  />
                 ) : view === "free-list" ? (
                   <FreeListView
                     inspection={inspection}
@@ -1189,12 +1220,13 @@ export default function App() {
                         {query
                           ? `No segments match “${query}”.`
                           : inspection.native?.catalog?.length
-                            ? `${inspection.native.catalog.map((table) => `${table.name} (${table.columns.length} columns, ${table.rows} rows)`).join(" · ")} · No stored segments.`
+                            ? `${inspection.native.catalog.map((table) => `${table.name} (${table.columns.length} columns, ${table.liveRows == null ? `${table.rows} physical rows, live rows unknown` : `${table.liveRows} live / ${table.rows} physical rows`})`).join(" · ")} · No stored segments.`
                             : "The database contains no tables or stored segments."}
                       </div>
                     ) : (
                       <>
                         <LogicalGroups
+                          rowGroupsInfo={inspection.native?.rowGroupsInfo}
                           segments={filteredSegments}
                           groups={visibleLogicalUnits}
                           selectedId={selectedSegmentId}
@@ -1384,16 +1416,20 @@ export default function App() {
 const Legend = memo(function Legend({
   mode,
   semanticReady,
+  indexes = [],
   segments = [],
 }: {
   mode: ColorMode;
   semanticReady: boolean;
+  indexes?: IndexInspection[];
   segments?: Segment[];
 }) {
   if (mode === "fragmentation")
     return (
       <div className="legend">
-        <span className="legend-title">UNUSED WITHIN DATA BLOCKS</span>
+        <span className="legend-title">
+          UNUSED WITHIN MEASURED DATA / INDEX BLOCKS
+        </span>
         <span className="gradient-legend" />
         <span>0%</span>
         <span>100%</span>
@@ -1443,14 +1479,22 @@ const Legend = memo(function Legend({
     );
   const categories =
     mode === "table"
-      ? [...new Set(segments.map((segment) => segment.table))]
+      ? [
+          ...new Set([
+            ...segments.map((segment) => segment.table),
+            ...indexes.map((index) => index.table),
+          ]),
+        ]
           .sort((a, b) => a.localeCompare(b))
           .map((name) => ({ name, color: stableColor(name, tablePalette) }))
       : mode === "column"
         ? [
-            ...new Set(
-              segments.map((segment) => `${segment.table}.${segment.column}`),
-            ),
+            ...new Set([
+              ...segments.map(
+                (segment) => `${segment.table}.${segment.column}`,
+              ),
+              ...indexes.map((index) => `${index.table} / ${index.name}`),
+            ]),
           ]
             .sort((a, b) => a.localeCompare(b))
             .map((name) => ({ name, color: stableColor(name, tablePalette) }))
@@ -1484,6 +1528,7 @@ const Legend = memo(function Legend({
 });
 
 const LogicalGroups = memo(function LogicalGroups({
+  rowGroupsInfo,
   segments,
   groups,
   selectedId,
@@ -1492,6 +1537,7 @@ const LogicalGroups = memo(function LogicalGroups({
   valueColumnKey,
   onPick,
 }: {
+  rowGroupsInfo?: NativeRowGroup[];
   segments: Segment[];
   groups: RowGroupUnit[];
   selectedId: string | null;
@@ -1500,6 +1546,16 @@ const LogicalGroups = memo(function LogicalGroups({
   valueColumnKey?: string;
   onPick: (segment: Segment) => void;
 }) {
+  const rowSummaries = useMemo(
+    () =>
+      new Map(
+        (rowGroupsInfo ?? []).map((row) => [
+          JSON.stringify([row.table, row.rowGroup]),
+          row,
+        ]),
+      ),
+    [rowGroupsInfo],
+  );
   const index = useMemo(() => createLogicalLayoutIndex(segments), [segments]);
   const tables = useMemo(
     () => buildLogicalTables(segments, groups, index),
@@ -1565,6 +1621,9 @@ const LogicalGroups = memo(function LogicalGroups({
               {table.rows.map((row) => (
                 <LogicalRow
                   key={row.group.rowGroup}
+                  summary={rowSummaries.get(
+                    JSON.stringify([table.name, row.group.rowGroup]),
+                  )}
                   model={row}
                   columns={table.columns}
                   selectedId={
@@ -1591,6 +1650,7 @@ const LogicalGroups = memo(function LogicalGroups({
 });
 
 const LogicalRow = memo(function LogicalRow({
+  summary,
   model,
   columns,
   selectedId,
@@ -1599,6 +1659,7 @@ const LogicalRow = memo(function LogicalRow({
   valueColumnKey,
   onPick,
 }: {
+  summary?: NativeRowGroup;
   model: LogicalRowModel;
   columns: { name: string; type: string }[];
   selectedId: string | null;
@@ -1614,8 +1675,13 @@ const LogicalRow = memo(function LogicalRow({
       <div className="logical-cell row-label">
         <span>RG {group}</span>
         <small>
-          {coverage ? `${formatNumber(coverage.count)} rows` : "Unknown rows"}
+          {summary
+            ? `${formatNumber(summary.liveRows)} live / ${formatNumber(summary.physicalRows)} physical`
+            : coverage
+              ? `${formatNumber(coverage.count)} rows`
+              : "Unknown rows"}
         </small>
+        {summary && <small>{formatNumber(summary.deletedRows)} deleted</small>}
       </div>
       {columns.map(({ name: column }) => {
         const cellSegments = model.cells.get(column) ?? [];
@@ -1770,6 +1836,8 @@ function BlockDetails({
   onBytePage: (offset: number) => void;
   onShowFreeList?: () => void;
 }) {
+  const [visibleRanges, setVisibleRanges] = useState(128);
+  useEffect(() => setVisibleRanges(128), [block.id]);
   const usedPercent =
     block.usedBytes == null || block.size <= 0
       ? null
@@ -1788,6 +1856,10 @@ function BlockDetails({
         block,
         colorMode,
         range.segmentId ? segmentsById.get(range.segmentId) : undefined,
+        range.indexId
+          ? (inspection.indexes?.find((index) => index.id === range.indexId) ??
+              block.indexOwners?.find((index) => index.id === range.indexId))
+          : undefined,
       ),
     ]),
   );
@@ -1825,6 +1897,38 @@ function BlockDetails({
           label="Internal free space"
           value={formatBytes(internalFreeBytes(block), true)}
         />
+        {block.role === "index" && (
+          <>
+            <DetailPair
+              label="Free stored-slot holes"
+              value={formatBytes(
+                block.usedBytes == null
+                  ? null
+                  : block.ranges
+                      .filter(
+                        (range) =>
+                          range.kind === "unused" && range.indexId != null,
+                      )
+                      .reduce((sum, range) => sum + range.size, 0),
+                true,
+              )}
+            />
+            <DetailPair
+              label="Unallocated gaps / tails"
+              value={formatBytes(
+                block.usedBytes == null
+                  ? null
+                  : block.ranges
+                      .filter(
+                        (range) =>
+                          range.kind === "unused" && range.indexId == null,
+                      )
+                      .reduce((sum, range) => sum + range.size, 0),
+                true,
+              )}
+            />
+          </>
+        )}
         <DetailPair
           label="Space used"
           value={usedPercent == null ? "Unknown" : `${usedPercent}%`}
@@ -1885,43 +1989,51 @@ function BlockDetails({
               role="group"
               aria-label="Proportional byte ranges within block"
             >
-              {orderedRanges.map((range) => {
-                const rawLeft =
-                  block.size > 0
-                    ? ((range.offset - block.offset) / block.size) * 100
-                    : 0;
-                const rawWidth =
-                  block.size > 0 ? (range.size / block.size) * 100 : 0;
-                const left = Math.max(0, Math.min(100, rawLeft));
-                const width = Math.max(
-                  0,
-                  Math.min(100 - left, rawWidth - Math.max(0, -rawLeft)),
-                );
-                const segment = range.segmentId
-                  ? segmentsById.get(range.segmentId)
-                  : undefined;
-                return (
-                  <button
-                    type="button"
-                    key={range.id}
-                    className={`byte-range range-${range.kind}`}
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      background: rangeAppearances.get(range.id)!.background,
-                    }}
-                    title={`${range.label}: ${formatBytes(range.size)} at ${formatOffset(range.offset)}${segment ? " · Select owning segment" : ""}`}
-                    aria-label={`${range.label}, ${formatBytes(range.size)}, offset ${formatOffset(range.offset)}${segment ? ", jump to segment details" : ""}`}
-                    disabled={!segment}
-                    onClick={() => {
-                      if (segment) onSegmentClick(segment);
-                    }}
-                  />
-                );
-              })}
+              {orderedRanges.length > 512 ? (
+                <DenseByteStrip
+                  block={block}
+                  ranges={orderedRanges}
+                  appearances={rangeAppearances}
+                />
+              ) : (
+                orderedRanges.map((range) => {
+                  const rawLeft =
+                    block.size > 0
+                      ? ((range.offset - block.offset) / block.size) * 100
+                      : 0;
+                  const rawWidth =
+                    block.size > 0 ? (range.size / block.size) * 100 : 0;
+                  const left = Math.max(0, Math.min(100, rawLeft));
+                  const width = Math.max(
+                    0,
+                    Math.min(100 - left, rawWidth - Math.max(0, -rawLeft)),
+                  );
+                  const segment = range.segmentId
+                    ? segmentsById.get(range.segmentId)
+                    : undefined;
+                  return (
+                    <button
+                      type="button"
+                      key={range.id}
+                      className={`byte-range range-${range.kind}`}
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        background: rangeAppearances.get(range.id)!.background,
+                      }}
+                      title={`${range.label}: ${formatBytes(range.size)} at ${formatOffset(range.offset)}${segment ? " · Select owning segment" : ""}`}
+                      aria-label={`${range.label}, ${formatBytes(range.size)}, offset ${formatOffset(range.offset)}${segment ? ", jump to segment details" : ""}`}
+                      disabled={!segment}
+                      onClick={() => {
+                        if (segment) onSegmentClick(segment);
+                      }}
+                    />
+                  );
+                })
+              )}
             </div>
             <div className="range-list">
-              {orderedRanges.map((range) => {
+              {orderedRanges.slice(0, visibleRanges).map((range) => {
                 const segment = range.segmentId
                   ? segmentsById.get(range.segmentId)
                   : undefined;
@@ -1949,6 +2061,24 @@ function BlockDetails({
                 );
               })}
             </div>
+            {visibleRanges < orderedRanges.length && (
+              <div className="range-load-more">
+                <span>
+                  {Math.min(
+                    visibleRanges,
+                    orderedRanges.length,
+                  ).toLocaleString()}{" "}
+                  of {orderedRanges.length.toLocaleString()} ranges
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setVisibleRanges((count) => count + 128)}
+                >
+                  Load more ranges
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <div className="preview-unavailable">
@@ -1958,6 +2088,22 @@ function BlockDetails({
         )}
       </div>
 
+      {(block.indexOwners?.length ?? 0) > 0 && (
+        <div className="detail-section">
+          <div className="detail-section-heading">
+            <span>Index ownership</span>
+            <span>{block.indexOwners!.length} indexes</span>
+          </div>
+          {block.indexOwners!.map((index) => (
+            <DetailPair key={index.id} label={index.table} value={index.name} />
+          ))}
+          <p className="section-caption">
+            Index nodes are not column codec data. Internal free bytes can
+            include both free stored-slot holes and unallocated block tails;
+            neither is a whole reusable free block.
+          </p>
+        </div>
+      )}
       {segments.length > 0 && (
         <div className="detail-section">
           <div className="detail-section-heading">
@@ -2139,6 +2285,9 @@ function SegmentDetails({
   block: FileBlock | null;
   onBlockClick: (block: FileBlock) => void;
 }) {
+  const rowSummary = inspection.native?.rowGroupsInfo?.find(
+    (row) => row.table === segment.table && row.rowGroup === segment.rowGroup,
+  );
   const linked =
     block?.links
       .map((id) => blocksById.get(id))
@@ -2210,6 +2359,54 @@ function SegmentDetails({
           value={segment.stats ?? "Not recorded"}
         />
       </div>
+      {rowSummary && (
+        <div className="detail-card">
+          <span className="detail-card-kicker">CHECKPOINT ROW GROUP</span>
+          <DetailPair
+            label="Physical rows"
+            value={formatNumber(rowSummary.physicalRows)}
+          />
+          <DetailPair
+            label="Live rows"
+            value={formatNumber(rowSummary.liveRows)}
+          />
+          <DetailPair
+            label="Deleted rows"
+            value={formatNumber(rowSummary.deletedRows)}
+          />
+          <DetailPair
+            label="Row start"
+            value={formatNumber(rowSummary.rowStart)}
+          />
+          <DetailPair
+            label="Delete vectors"
+            value={formatNumber(rowSummary.deleteVectors.length)}
+          />
+          <DetailPair
+            label="Delete encodings"
+            value={
+              [
+                ...new Set(
+                  rowSummary.deleteVectors.map((vector) => vector.encoding),
+                ),
+              ].join(", ") || "None"
+            }
+          />
+          <DetailPair
+            label="Deleted row runs"
+            value={formatNumber(
+              rowSummary.deleteVectors.reduce(
+                (sum, vector) => sum + vector.deletedRanges.length,
+                0,
+              ),
+            )}
+          />
+          <p className="section-caption">
+            Logical checkpoint visibility, not per-segment null counts or
+            reclaimable physical bytes.
+          </p>
+        </div>
+      )}
       {block && (
         <div className="detail-section">
           <div className="detail-section-heading">
