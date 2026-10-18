@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createDemo } from "../../src/lib/demo";
-import type { FileBlock, IndexInspection } from "../../src/lib/types";
+import type {
+  FileBlock,
+  FileInspection,
+  IndexInspection,
+} from "../../src/lib/types";
 import { databaseFixture, DATA_START } from "./fixture";
 
 /** Renderer stress model; native mask validity is covered by parser tests. */
@@ -118,7 +122,12 @@ async function openSyntheticIndex(page: Page, complete: boolean) {
     ],
   };
   inspection.indexes = [index];
-  // Exercise the real app/worker result boundary without application test hooks.
+  await openIndexModel(page, inspection);
+}
+
+/** Exercise the real app/worker result boundary without application test hooks. */
+export async function openIndexModel(page: Page, inspection: FileInspection) {
+  // A synthetic worker result keeps renderer tests independent of CLI versions.
   await page.route("**/src/lib/inspection-worker.ts*", (route) =>
     route.fulfill({
       contentType: "text/javascript",
@@ -133,7 +142,9 @@ async function openSyntheticIndex(page: Page, complete: boolean) {
     page.getByRole("heading", { name: "browser-fixture.duckdb" }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Indexes", exact: true }).click();
-  await expect(page.locator(".index-card")).toHaveCount(1);
+  await expect(page.locator(".index-comparison-row")).toHaveCount(
+    Math.min(32, inspection.indexes?.length ?? 0),
+  );
 }
 
 test("incomplete mask scans never present allocator catalog counts as measured occupancy", async ({
@@ -143,31 +154,29 @@ test("incomplete mask scans never present allocator catalog counts as measured o
   await expect(page.locator(".index-incomplete")).toContainText(
     "work limit exceeded",
   );
-  await expect(page.locator(".index-card .index-metrics strong")).toHaveText([
+  await expect(page.locator(".index-unknown-extent")).toContainText(
+    "Unmeasured",
+  );
+  await expect(page.locator(".index-metrics strong")).toHaveText([
+    "1",
     "Unknown",
     "Unknown",
     "Unknown",
     "Unknown",
   ]);
-  await expect(page.locator(".index-card .index-allocator")).toHaveCount(1);
-  await expect(
-    page.locator(".index-card .index-allocator summary"),
-  ).toContainText("Referenced blocks");
-  await expect(page.locator(".index-slot-bar")).toHaveCount(0);
+  await expect(page.locator(".index-allocator-row")).toHaveCount(0);
+  await expect(page.locator(".index-buffer-tile")).toHaveCount(0);
+  await expect(page.locator(".index-technical")).not.toHaveAttribute(
+    "open",
+    "",
+  );
 });
 
 test("highly fragmented blocks use a bounded SVG strip and progressively reveal range rows", async ({
   page,
 }) => {
   await openSyntheticIndex(page, true);
-  await page
-    .locator(".index-card details > summary")
-    .filter({ hasText: "Referenced blocks" })
-    .click();
-  await page
-    .locator(".index-card .link-chip")
-    .filter({ hasText: "Block 0" })
-    .click();
+  await page.locator(".index-buffer-tile").first().click();
   await expect(page.locator(".dense-byte-strip")).toBeVisible();
   await expect(page.locator(".byte-strip .byte-range")).toHaveCount(0);
   expect(await page.locator(".dense-byte-strip > path").count()).toBeLessThan(

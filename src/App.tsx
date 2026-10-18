@@ -1186,6 +1186,7 @@ export default function App() {
                   <IndexView
                     key={inspection.headerFingerprint ?? inspection.name}
                     inspection={inspection}
+                    selectedBlockId={selectedBlockId}
                     query={deferredQuery}
                     onPick={(id) => {
                       if (!blocksById.has(id)) return;

@@ -42,7 +42,7 @@ test("native named indexes expose persisted allocator occupancy, block ownership
     page.getByRole("heading", { name: "browser-indexes.duckdb" }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Indexes", exact: true }).click();
-  await expect(page.locator(".index-card")).toHaveCount(3);
+  await expect(page.locator(".index-comparison-row")).toHaveCount(3);
   await expect(page.locator(".index-view")).toContainText(
     "3 of 3 indexes completely measured",
   );
@@ -50,24 +50,23 @@ test("native named indexes expose persisted allocator occupancy, block ownership
     "not unallocated block tails",
   );
   await page.getByLabel("Search indexes or tables").fill("no such index");
-  await expect(page.locator(".index-card")).toHaveCount(0);
+  await expect(page.locator(".index-comparison-row")).toHaveCount(0);
   await expect(page.locator(".index-view")).toContainText("No indexes match");
   await page.getByLabel("Search indexes or tables").fill("main.t");
-  await expect(page.locator(".index-card")).toHaveCount(2);
+  await expect(page.locator(".index-comparison-row")).toHaveCount(2);
   await page.getByLabel("Search indexes or tables").fill("named_id");
-  await expect(page.locator(".index-card")).toHaveCount(1);
-  await expect(page.locator(".index-card")).toContainText("Root:");
-  await expect(page.locator(".index-buffer")).toHaveCount(0);
-  await page
-    .locator(".index-card details > summary")
-    .filter({ hasText: /[1-9][\d,]* buffers/ })
-    .first()
-    .click();
-  await expect(page.locator(".index-card")).toContainText(
+  await expect(page.locator(".index-comparison-row")).toHaveCount(1);
+  await page.locator(".index-comparison-row").click();
+  await expect(page.locator(".index-allocator-row").first()).toBeVisible();
+  await expect(page.locator(".index-technical")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(page.locator(".index-buffer-tile").first()).toBeVisible();
+  await expect(page.locator(".index-view")).toContainText(
     "Capacity outside the persisted envelope is not counted as bytes",
   );
-  await expect(page.locator(".index-slot-bar").first()).toBeVisible();
-  await page.locator(".index-card .index-buffer .link-chip").first().click();
+  await page.locator(".index-buffer-tile").first().click();
   await expect(
     page.getByRole("tab", { name: "Indexes", exact: true }),
   ).toHaveAttribute("data-state", "active");
