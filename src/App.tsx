@@ -2,6 +2,7 @@ import { IndexView } from "@/components/index-view";
 import { Landing } from "@/components/landing";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DatabaseSummary } from "@/components/database-summary";
+import { StorageCompatibilityWarning } from "@/components/storage-compatibility-warning";
 import { checkpointStatus, commonSchemaPrefix } from "@/lib/checkpoint-status";
 import { useMediaQuery, usePersistentFlag } from "@/hooks/use-persistent-state";
 import { DenseByteStrip } from "@/components/dense-byte-strip";
@@ -787,6 +788,7 @@ function Workspace({
               ) : undefined
             }
           />
+          <StorageCompatibilityWarning version={inspection.storageVersion} />
           {(error || manifestMessage) && (
             <div className="message-stack">
               {error && (
@@ -1479,7 +1481,7 @@ export default function App() {
 
   return (
     <div
-      className="app-shell"
+      className={`app-shell${inspection ? "" : " is-landing"}`}
       data-theme={theme}
       onDragOver={(event) => {
         event.preventDefault();

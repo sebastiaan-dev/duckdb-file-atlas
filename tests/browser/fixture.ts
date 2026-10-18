@@ -39,18 +39,20 @@ export async function indexDatabaseFixture() {
 export const DATA_START = 3 * 4096;
 export const BLOCK_SIZE = 16384;
 
-/** A real file upload with valid v69 headers and 200 implicit free blocks.
+/** A real file upload with valid headers and 200 implicit free blocks.
+ * Defaults to v69; older targets encode the deprecated serialization version.
  * No external database binary, server mocks, or application test hooks needed.
  */
 export function databaseFixture(
   fill = 0,
   physicalOnly = false,
   blockCount = 200,
+  storageVersion: 64 | 65 | 66 | 67 | 68 | 69 = 69,
 ) {
   const buffer = Buffer.alloc(DATA_START + blockCount * BLOCK_SIZE, fill);
   buffer.fill(0, 0, DATA_START);
   buffer.write("DUCK", 8);
-  buffer.writeBigUInt64LE(69n, 12);
+  buffer.writeBigUInt64LE(BigInt(storageVersion), 12);
   buffer.write("v2.0.0-test", 52);
   for (const slot of [1, 2]) {
     const start = slot * 4096 + 8;
@@ -61,7 +63,13 @@ export function databaseFixture(
       physicalOnly ? 200n : 0n,
       BigInt(BLOCK_SIZE),
       2048n,
-      69n,
+      BigInt(
+        storageVersion === 69
+          ? 69
+          : storageVersion === 64
+            ? 1
+            : storageVersion - 61,
+      ),
     ];
     fields.forEach((value, i) => buffer.writeBigUInt64LE(value, start + i * 8));
   }

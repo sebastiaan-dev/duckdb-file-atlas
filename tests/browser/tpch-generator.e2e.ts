@@ -86,6 +86,14 @@ for (const scale of [0.01, 0.1]) {
       page.getByRole("heading", { name: `tpch-sf${scale}.duckdb` }),
     ).toBeVisible();
     await expect(page.getByRole("tab", { name: "Physical map" })).toBeVisible();
+    await expect(
+      page.getByRole("status", { name: "Storage compatibility warning" }),
+    ).toContainText("v1.5.0");
+    await expect(page.locator(".app-shell")).not.toHaveClass(/is-landing/);
+    await expect(page.locator(".app-shell")).toHaveCSS(
+      "background-image",
+      "none",
+    );
     // Exercise the native reader, not merely a successful WASM export/header.
     await expect(page.locator(".side-tables > button")).toHaveCount(8);
     await expect(page.getByRole("alert")).toHaveCount(0);

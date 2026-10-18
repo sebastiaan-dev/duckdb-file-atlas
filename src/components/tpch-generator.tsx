@@ -1,6 +1,6 @@
 import "./tpch-generator.css";
 import { useEffect, useId, useRef, useState } from "react";
-import { Download, LoaderCircle } from "lucide-react";
+import { Database, Download, LoaderCircle } from "lucide-react";
 import {
   generateTpchDatabase,
   tpchGenerationError,
@@ -104,14 +104,19 @@ export function TpchGenerator({
   }
 
   return (
-    <section className="tpch-generator" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`}>Generate a TPC-H sample</h2>
-      <p id={`${id}-privacy`}>
-        Generation downloads DuckDB WASM and the TPC-H extension from jsDelivr
-        and extensions.duckdb.org. Tables and database bytes stay in your
-        browser and are never uploaded. This can use several hundred MB of
-        memory.
-      </p>
+    <section
+      className="tpch-generator landing-card"
+      aria-labelledby={`${id}-heading`}
+    >
+      <div className="tpch-generator-heading">
+        <span className="landing-card-icon" aria-hidden="true">
+          <Database size={23} />
+        </span>
+        <div>
+          <h2 id={`${id}-heading`}>Generate a TPC-H sample</h2>
+          <p>No file handy? Create one in your browser.</p>
+        </div>
+      </div>
       <div className="tpch-generator-controls">
         <label htmlFor={`${id}-scale`}>TPC-H scale factor</label>{" "}
         <select
@@ -127,6 +132,7 @@ export function TpchGenerator({
         </select>{" "}
         <button
           type="button"
+          className="tpch-generate-button"
           onClick={() => void generate()}
           disabled={busy || opening || disabled}
           aria-describedby={`${id}-privacy`}
@@ -142,6 +148,11 @@ export function TpchGenerator({
           </button>
         )}
       </div>
+      <p className="tpch-generator-privacy" id={`${id}-privacy`}>
+        Downloads DuckDB WASM and TPC-H from jsDelivr and extensions.duckdb.org.
+        Data stays in your browser and is never uploaded. Generation can use
+        several hundred MB of memory.
+      </p>
       <p role="status" aria-live="polite" aria-atomic="true">
         {progress}
       </p>

@@ -1,6 +1,13 @@
+import "./landing.css";
 import { TpchGenerator } from "./tpch-generator";
-import { useState } from "react";
-import { AlertCircle, FileUp, LoaderCircle, Lock, X } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  FileUp,
+  LoaderCircle,
+  Lock,
+  X,
+} from "lucide-react";
 
 export interface LandingProps {
   loading: boolean;
@@ -21,7 +28,6 @@ export function Landing({
   onChooseFile,
   onGenerated,
 }: LandingProps) {
-  const [hover, setHover] = useState(false);
   return (
     <main className="landing">
       <div className="landing-inner">
@@ -32,26 +38,37 @@ export function Landing({
         </p>
         <button
           type="button"
-          className={`landing-dropzone${dragging || hover ? " is-active" : ""}${loading ? " is-loading" : ""}`}
+          className={`landing-dropzone landing-card${dragging ? " is-active" : ""}${loading ? " is-loading" : ""}`}
           onClick={onChooseFile}
-          onPointerEnter={() => setHover(true)}
-          onPointerLeave={() => setHover(false)}
           disabled={loading}
           aria-describedby="landing-privacy"
         >
-          {loading ? (
-            <LoaderCircle className="spin" size={26} aria-hidden="true" />
-          ) : (
-            <FileUp size={26} aria-hidden="true" />
-          )}
-          <strong>
-            {loading
-              ? "Reading file…"
-              : dragging
-                ? "Drop to inspect"
-                : "Drop a .duckdb file here"}
-          </strong>
-          {!loading && <span>or click to choose a file</span>}
+          <span className="landing-card-icon is-accent" aria-hidden="true">
+            {loading ? (
+              <LoaderCircle className="spin" size={23} />
+            ) : (
+              <FileUp size={23} />
+            )}
+          </span>
+          <span className="landing-upload-copy">
+            <strong>
+              {loading
+                ? "Reading file…"
+                : dragging
+                  ? "Drop to inspect"
+                  : "Drop a .duckdb file here"}
+            </strong>
+            <span>
+              {loading
+                ? "Inspecting the local checkpoint"
+                : "or click to choose a file"}
+            </span>
+          </span>
+          <ArrowUpRight
+            className="landing-upload-arrow"
+            size={20}
+            aria-hidden="true"
+          />
         </button>
         {error && (
           <div className="message error-message landing-error" role="alert">
@@ -66,12 +83,12 @@ export function Landing({
             </button>
           </div>
         )}
+        <TpchGenerator onGenerated={onGenerated} disabled={loading} />
         <p className="landing-privacy" id="landing-privacy">
           <Lock size={12} aria-hidden="true" />
           The file is read in your browser and never uploaded. Supports DuckDB
           storage formats v1.0.0–v2.0.0.
         </p>
-        <TpchGenerator onGenerated={onGenerated} disabled={loading} />
       </div>
     </main>
   );

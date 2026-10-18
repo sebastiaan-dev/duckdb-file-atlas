@@ -1,0 +1,29 @@
+.storage-compatibility-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--line), #c99846 35%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface), #c99846 6%);
+  color: var(--ink);
+}
+.storage-compatibility-warning > svg {
+  flex: none;
+  margin-top: 1px;
+  color: #b6832f;
+}
+[data-theme="dark"] .storage-compatibility-warning > svg {
+  color: #e2b76e;
+}
+.storage-compatibility-warning strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.storage-compatibility-warning p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
