@@ -1,3 +1,4 @@
+import { internalFreeBytes } from "./fragmentation";
 import type { ColorMode, FileBlock, Segment, StorageRole } from "./types";
 
 export const roleColors: Record<StorageRole, string> = {
@@ -60,6 +61,14 @@ export function blockCellColors(
 ): string[] {
   if (block.role === "free") return [roleColors.free];
   if (mode === "role") return [roleColors[block.role]];
+  if (mode === "fragmentation") {
+    const unused = internalFreeBytes(block);
+    if (unused == null) return [roleColors.unknown];
+    const ratio = unused / block.size;
+    return [
+      spaceRamp[ratio > 0.5 ? 3 : ratio > 0.2 ? 2 : ratio > 0.02 ? 1 : 0],
+    ];
+  }
   if (mode === "utilization") {
     if (block.usedBytes == null || block.size <= 0) return [roleColors.unknown];
     const ratio = Math.max(0, Math.min(1, block.usedBytes / block.size));

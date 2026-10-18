@@ -1,3 +1,4 @@
+import { internalFreeBytes } from "@/lib/fragmentation";
 import {
   useEffect,
   useId,
@@ -65,7 +66,15 @@ function HeatmapTooltip({
             <dd>
               {block.usedBytes == null || block.size <= 0
                 ? "Unknown"
-                : `${bytes(block.usedBytes)} · ${Math.round((block.usedBytes / block.size) * 100)}%`}
+                : `${bytes(block.usedBytes)} · ${((block.usedBytes / block.size) * 100).toFixed(1)}%`}
+            </dd>
+          </div>
+          <div>
+            <dt>Internal free</dt>
+            <dd>
+              {internalFreeBytes(block) == null
+                ? "Unmeasured"
+                : bytes(internalFreeBytes(block)!)}
             </dd>
           </div>
           <div>
@@ -245,7 +254,9 @@ export function BlockHeatmap({
                         (block.role !== "free" &&
                           (colorMode === "utilization"
                             ? block.usedBytes == null || block.size <= 0
-                            : colorMode !== "role" && owners.length === 0));
+                            : colorMode === "fragmentation"
+                              ? internalFreeBytes(block) == null
+                              : colorMode !== "role" && owners.length === 0));
                       const selected = selectedBlockId === block.id;
                       const hovered = hoveredBlockId === block.id;
                       const linked = linkedIds.has(block.id);

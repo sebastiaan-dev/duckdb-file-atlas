@@ -1,3 +1,4 @@
+import { fragmentationSummary, internalFreeBytes } from "@/lib/fragmentation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -49,7 +50,8 @@ import {
   spaceRamp,
 } from "@/lib/palette";
 import { createDemo } from "@/lib/demo";
-import { inspectFile, readBytes } from "@/lib/reader";
+import { readBytes } from "@/lib/reader";
+import { inspectDatabase } from "@/lib/open-database";
 import { applyManifest } from "@/lib/semantic";
 import {
   aggregateByteSize,
@@ -72,13 +74,13 @@ type ViewMode = "physical" | "logical";
 type Density = 0 | 1 | 2;
 type ByteView = { blockId: number; offset: number; bytes: Uint8Array } | null;
 
-function formatBytes(value: number | null | undefined) {
+function formatBytes(value: number | null | undefined, precise = false) {
   if (value == null || !Number.isFinite(value)) return "Unknown";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024)
-    return `${(value / 1024).toFixed(value >= 10 * 1024 ? 0 : 1)} KiB`;
+    return `${(value / 1024).toFixed(precise ? 1 : value >= 10 * 1024 ? 0 : 1)} KiB`;
   if (value < 1024 ** 3)
-    return `${(value / 1024 ** 2).toFixed(value >= 10 * 1024 ** 2 ? 0 : 1)} MiB`;
+    return `${(value / 1024 ** 2).toFixed(precise ? 1 : value >= 10 * 1024 ** 2 ? 0 : 1)} MiB`;
   return `${(value / 1024 ** 3).toFixed(2)} GiB`;
 }
 
@@ -192,10 +194,11 @@ export default function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
   const fileLoadRequestRef = useRef(0);
+  const inspectionAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => inspectionAbortRef.current?.abort(), []);
   const manifestImportRequestRef = useRef(0);
 
-  const semanticReady =
-    inspection.capabilities.semantic && inspection.segments.length > 0;
+  const semanticReady = inspection.capabilities.semantic;
   const selectedBlock = useMemo(
     () =>
       inspection.blocks.find((block) => block.id === selectedBlockId) ?? null,
@@ -214,7 +217,11 @@ export default function App() {
     [inspection.headers, selectedHeaderSlot],
   );
   const effectiveHoverBlock =
-    hoveredBlockId ?? selectedBlockId ?? selectedSegment?.blockId ?? null;
+    hoveredBlockId ??
+    selectedBlockId ??
+    (selectedSegment && selectedSegment.blockId >= 0
+      ? selectedSegment.blockId
+      : null);
   const linkedBlockIds = useMemo(
     () =>
       new Set(
@@ -233,7 +240,8 @@ export default function App() {
             .toLocaleLowerCase()
             .includes(term),
         )
-        .map((segment) => segment.blockId),
+        .map((segment) => segment.blockId)
+        .filter((id) => id >= 0),
     );
     return inspection.blocks.filter(
       (block) =>
@@ -249,6 +257,7 @@ export default function App() {
   const segmentsByBlock = useMemo(() => {
     const byBlock = new Map<number, Segment[]>();
     for (const segment of inspection.segments) {
+      if (segment.blockId < 0) continue;
       const blockSegments = byBlock.get(segment.blockId) ?? [];
       blockSegments.push(segment);
       byBlock.set(segment.blockId, blockSegments);
@@ -274,14 +283,6 @@ export default function App() {
   );
   const headerBlocks = inspection.blocks.filter(
     (block) => block.role === "header",
-  );
-  const totalUsedBytes = inspection.blocks.reduce(
-    (total, block) => total + (block.usedBytes ?? 0),
-    0,
-  );
-  const totalKnownBytes = inspection.blocks.reduce(
-    (total, block) => total + (block.usedBytes == null ? 0 : block.size),
-    0,
   );
   const logicalUnits = useMemo(
     () => buildRowGroupUnits(filteredSegments),
@@ -331,6 +332,9 @@ export default function App() {
   const loadDatabase = useCallback(
     async (file: File) => {
       const requestId = ++fileLoadRequestRef.current;
+      inspectionAbortRef.current?.abort();
+      const controller = new AbortController();
+      inspectionAbortRef.current = controller;
       manifestImportRequestRef.current += 1;
       requestIdRef.current += 1;
       setByteView(null);
@@ -340,7 +344,7 @@ export default function App() {
       setManifestMessage("");
       setNotice("");
       try {
-        const result = await inspectFile(file);
+        const result = await inspectDatabase(file, controller.signal);
         if (requestId !== fileLoadRequestRef.current) return;
         setInspection(result);
         setActiveFile(file);
@@ -349,7 +353,11 @@ export default function App() {
         setQuery("");
 
         clearSelection();
-        setNotice(`Loaded ${file.name} locally`);
+        setNotice(
+          result.native
+            ? `Read ${result.native.tables} tables and ${result.native.rowGroups} row groups directly from ${file.name}`
+            : `Loaded ${file.name} locally`,
+        );
       } catch (caught) {
         if (requestId === fileLoadRequestRef.current)
           setError(
@@ -415,7 +423,7 @@ export default function App() {
 
   const chooseSegment = useCallback((segment: Segment) => {
     setSelectedSegmentId(segment.id);
-    setSelectedBlockId(segment.blockId);
+    setSelectedBlockId(segment.blockId >= 0 ? segment.blockId : null);
     setSelectedHeaderSlot(null);
     setByteView(null);
   }, []);
@@ -516,13 +524,15 @@ export default function App() {
   };
 
   const tables = useMemo(() => {
-    const names = new Map<string, number>();
+    const names = new Map<string, number>(
+      (inspection.native?.catalog ?? []).map((table) => [table.name, 0]),
+    );
     for (const segment of inspection.segments)
       names.set(segment.table, (names.get(segment.table) ?? 0) + 1);
     return [...names]
       .map(([name, segments]) => ({ name, segments }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [inspection.segments]);
+  }, [inspection.segments, inspection.native]);
   const roleLabels: Record<StorageRole, string> = {
     header: "Headers",
     metadata: "Metadata",
@@ -540,9 +550,7 @@ export default function App() {
         .reduce((sum, block) => sum + block.size, 0),
     }),
   );
-  const knownUtilization = totalKnownBytes
-    ? Math.min(100, Math.round((totalUsedBytes / totalKnownBytes) * 100))
-    : null;
+  const fragmentation = fragmentationSummary(inspection);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
@@ -671,6 +679,7 @@ export default function App() {
               className={view === "logical" ? "active" : ""}
               onClick={() => {
                 setView("logical");
+                if (colorMode === "fragmentation") setColorMode("utilization");
                 if (colorMode === "role") setColorMode("table");
               }}
             >
@@ -703,7 +712,9 @@ export default function App() {
               </div>
             ) : (
               <p className="side-empty">
-                Import a semantic map to connect tables to blocks.
+                {inspection.native
+                  ? "No tables in this checkpoint."
+                  : "Logical metadata is not available for this file."}
               </p>
             )}
           </div>
@@ -758,15 +769,23 @@ export default function App() {
               <p>A closer look at how your database takes shape.</p>
             </div>
             <div className="heading-actions">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => manifestInputRef.current?.click()}
-                title="Import a duckdb-file-layout/v1 semantic JSON map"
-              >
-                <FileCode2 size={14} />
-                Import metadata
-              </Button>
+              {!inspection.native && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => manifestInputRef.current?.click()}
+                  title="Import a duckdb-file-layout/v1 semantic JSON map"
+                >
+                  <FileCode2 size={14} />
+                  Import metadata
+                </Button>
+              )}
+              {inspection.native && (
+                <Badge variant="purple">
+                  <Check size={12} />
+                  Decoded from file
+                </Badge>
+              )}
               <TooltipProvider delayDuration={250}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -775,7 +794,7 @@ export default function App() {
                       type="button"
                       onClick={() =>
                         setNotice(
-                          "Physical blocks are read from your file. Import a semantic map for table, column, and compression details.",
+                          "Checkpoint metadata is traversed locally to read tables, column segments, recorded byte sizes, and statistics. Gaps are measured only in completely mapped data blocks.",
                         )
                       }
                       aria-label="About the file map"
@@ -784,8 +803,8 @@ export default function App() {
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    Inspect physical blocks, then connect their logical
-                    ownership with a semantic map.
+                    Explore checkpoint metadata, physical allocations, and
+                    measured internal free space.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -831,17 +850,22 @@ export default function App() {
                 <small>
                   {semanticReady
                     ? `${tables.length} tables connected`
-                    : "Semantic map available to import"}
+                    : "Native decoding unavailable"}
                 </small>
               </div>
               <div className="support-metric">
-                <span className="eyebrow">KNOWN SPACE USED</span>
-                <strong>
-                  {knownUtilization == null ? "—" : `${knownUtilization}%`}
+                <span className="eyebrow">INTERNAL FREE SPACE</span>
+                <strong
+                  title={`${formatNumber(fragmentation.bytes)} bytes in completely mapped data blocks`}
+                >
+                  {fragmentation.measuredBlocks
+                    ? formatBytes(fragmentation.bytes, true)
+                    : "—"}
                 </strong>
                 <small>
-                  {Math.round((totalKnownBytes / inspection.fileSize) * 100)}%
-                  of file classified for usage
+                  {fragmentation.measuredBlocks
+                    ? `${((fragmentation.ratio ?? 0) * 100).toFixed(2)}% unused · ${Math.round(fragmentation.coverage * 100)}% of data blocks measured`
+                    : "Complete segment extents required"}
                 </small>
               </div>
             </div>
@@ -928,6 +952,8 @@ export default function App() {
               value={view}
               onValueChange={(value) => {
                 setView(value as ViewMode);
+                if (value === "logical" && colorMode === "fragmentation")
+                  setColorMode("utilization");
                 if (value === "logical" && colorMode === "role")
                   setColorMode("table");
               }}
@@ -988,6 +1014,9 @@ export default function App() {
                   <option value="compression" disabled={!semanticReady}>
                     Compression
                   </option>
+                  {view === "physical" && (
+                    <option value="fragmentation">Internal free space</option>
+                  )}
                   <option value="utilization">
                     {view === "logical" ? "Segment footprint" : "Space used"}
                   </option>
@@ -1139,7 +1168,9 @@ export default function App() {
                     <div className="logical-intro">
                       <div>
                         <span className="logical-eyebrow">
-                          SEMANTIC OVERLAY
+                          {inspection.native
+                            ? "CHECKPOINT METADATA"
+                            : "SEMANTIC OVERLAY"}
                         </span>
                         <p>
                           Color and selection connect each logical segment to
@@ -1154,7 +1185,11 @@ export default function App() {
                     {filteredSegments.length === 0 ? (
                       <div className="empty-search">
                         <Search size={16} />
-                        No segments match “{query}”.
+                        {query
+                          ? `No segments match “${query}”.`
+                          : inspection.native?.catalog?.length
+                            ? `${inspection.native.catalog.map((table) => `${table.name} (${table.columns.length} columns, ${table.rows} rows)`).join(" · ")} · No stored segments.`
+                            : "The database contains no tables or stored segments."}
                       </div>
                     ) : (
                       <>
@@ -1209,13 +1244,13 @@ export default function App() {
                     </div>
                     <Badge variant="warning">
                       <FileCode2 size={12} />
-                      Semantic map needed
+                      Checkpoint decoding unavailable
                     </Badge>
                     <h3>Logical ownership is not available yet</h3>
                     <p>
                       This file’s physical blocks are readable. Import a
-                      semantic manifest to connect blocks with tables, columns,
-                      row groups, and compression.
+                      semantic manifest as a fallback to connect blocks with
+                      tables, columns, row groups, and compression.
                     </p>
                     <Button
                       variant="secondary"
@@ -1365,6 +1400,19 @@ function Legend({
   logical?: boolean;
   maxSegmentBytes?: number;
 }) {
+  if (mode === "fragmentation")
+    return (
+      <div className="legend">
+        <span className="legend-title">UNUSED WITHIN DATA BLOCKS</span>
+        <span className="gradient-legend" />
+        <span>0%</span>
+        <span>100%</span>
+        <span className="legend-unknown">
+          <i />
+          Unmeasured allocations
+        </span>
+      </div>
+    );
   if (mode === "utilization" && logical)
     return (
       <div className="legend">
@@ -1412,7 +1460,7 @@ function Legend({
       <div className="legend">
         <span className="legend-title">{mode.toUpperCase()}</span>
         <span className="legend-empty">
-          Available after semantic metadata is imported
+          Available after checkpoint metadata is decoded
         </span>
       </div>
     );
@@ -1658,8 +1706,10 @@ function LogicalRow({
                     {shortName(segment.column, 18)}
                   </span>
                   <span className="segment-cell-meta">
-                    {formatBytes(segment.byteSize)} <i /> Block{" "}
-                    {segment.blockId}
+                    {formatBytes(segment.byteSize)} <i />{" "}
+                    {segment.blockId >= 0
+                      ? `Block ${segment.blockId}`
+                      : "Constant · no data block"}
                   </span>
                 </button>
               );
@@ -1803,6 +1853,10 @@ function BlockDetails({
         <DetailPair label="Block size" value={formatBytes(block.size)} />
         <DetailPair label="Bytes used" value={formatBytes(block.usedBytes)} />
         <DetailPair
+          label="Internal free space"
+          value={formatBytes(internalFreeBytes(block), true)}
+        />
+        <DetailPair
           label="Space used"
           value={usedPercent == null ? "Unknown" : `${usedPercent}%`}
         />
@@ -1870,7 +1924,7 @@ function BlockDetails({
                     type="button"
                     className={`range-row ${segment ? "range-row-linked" : ""}`}
                     key={range.id}
-                    title={`${formatOffset(range.offset)} · ${formatBytes(range.size)}${segment ? " · Jump to segment" : ""}`}
+                    title={`${formatOffset(range.offset)} · ${formatNumber(range.size)} bytes${segment ? " · Jump to segment" : ""}`}
                     disabled={!segment}
                     onClick={() => {
                       if (segment) onSegmentClick(segment);
@@ -2102,7 +2156,11 @@ function SegmentDetails({
         <DetailPair label="Byte size" value={formatBytes(segment.byteSize)} />
         <DetailPair
           label="Block-relative offset"
-          value={`+${formatOffset(segment.offset)}`}
+          value={
+            segment.blockId >= 0
+              ? `+${formatOffset(segment.offset)}`
+              : "No physical payload"
+          }
           mono
         />
         <DetailPair
@@ -2169,7 +2227,9 @@ function SegmentDetails({
         <span>
           {inspection.source === "demo"
             ? "These semantic values are illustrative sample data. Import a map to connect a real database file."
-            : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
+            : inspection.native
+              ? "Read directly from the checkpoint. String zonemaps may be bounded prefixes; null counts are shown only when recorded or provable."
+              : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
         </span>
       </div>
     </div>
@@ -2213,7 +2273,10 @@ function InspectorWelcome({
           </span>
           <span>
             <strong>Connect logical data</strong>
-            <small>Import a semantic map to see table ownership.</small>
+            <small>
+              A sidecar can provide ownership when native decoding is
+              unavailable.
+            </small>
           </span>
         </div>
       )}

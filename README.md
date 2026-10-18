@@ -1,16 +1,18 @@
 # DuckDB File Atlas
 
-DuckDB File Atlas links the physical checkpoint layout of a DuckDB database to table and column storage metadata. The browser reader verifies the three header pages and maps metadata, free-list, and unknown blocks. A semantic sidecar can add table, column, row-group, compression, and row-range information to verified data blocks.
+DuckDB File Atlas reads a local DuckDB database directly in your browser. It traverses the active checkpoint’s catalog, table, row-group, and column metadata, then builds a linked physical block map and logical segment inspector. No metadata sidecar, DuckDB runtime, upload, or server is needed for supported revision-69 checkpoints.
 
-The app reads a local file in the browser. To create semantic metadata, run the companion exporter with a DuckDB CLI built from source that supports storage version 69:
+The parser runs in a background worker, reads bounded slices of the file, and verifies each metadata block it traverses. Segment sizes come from the checkpoint’s optional `byte_size` field. Constants that have no physical block occupy zero physical bytes, even when DuckDB records a nonzero codec size.
+
+The overview and **Internal free space** color mode measure gaps and unused tails only in completely mapped data blocks. They show coverage and exclude whole free blocks. Index and string overflow allocations are identified but their internal free bytes remain unmeasured. Missing recorded sizes stay unknown; segment lengths are never estimated from neighboring pointers. Empty and nested columns are handled separately from physical data allocations.
+
+An optional companion exporter remains available as a fallback when the native decoder encounters an unsupported catalog or storage feature:
 
 ```sh
 bun scripts/inspect.ts --duckdb /path/to/duckdb /path/to/database.duckdb > manifest.json
 ```
 
-The exporter checks the file header first, requires storage version 69 (`v2.0.0`), then runs the catalog and `pragma_storage_info` queries with the DuckDB CLI in JSON and read-only mode. It writes only the manifest to stdout and sends errors to stderr. The app accepts the sidecar only when its format, storage version, exact file size, and SHA-256 fingerprint of the first 12 KiB match the inspected file. The fingerprint covers the three DuckDB header pages; it is not a digest of all database contents.
-
-DuckDB's public `pragma_storage_info` does not report a segment's exact byte length. The exporter therefore records `byteSize: null`, and the visualization marks the data block without drawing a guessed segment extent. It includes the payload-relative `block_offset` adjusted to a physical block-relative offset, the 8-byte checksum header included. Non-persistent rows and rows with invalid or absent block pointers are omitted. Exact per-segment ranges can be shown only when a future trusted source supplies a bounded byte size.
+The exporter uses a compatible, read-only DuckDB CLI. Sidecars are matched to the file size, storage version, and SHA-256 of the first 12 KiB. They do not expose exact segment sizes and cannot replace a successfully decoded native map.
 
 ## Interface
 
@@ -22,7 +24,7 @@ The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](h
 
 Use the physical grid as the default map: its positions preserve disk-offset order, while selection expands into a proportional byte strip and a bounded hex inspector. Keep the three 4 KiB headers separate so equal-sized tiles never imply that they occupy as much disk space as a data block. A linked row-group × column matrix answers which logical data owns those blocks; cells retain every segment, including separate validity segments. Mixed-owner stripes expose shared physical blocks. Unknown byte sizes stay unknown, so a color never promises an inferred storage footprint.
 
-This first iteration uses linked selection between layouts. Animated physical-to-logical transitions, predicate/zonemap pruning, exact compressed vector layouts, and browser-native catalog deserialization remain follow-up work.
+The layouts share selection and pointer highlighting. Animated transitions, predicate/zonemap pruning, and compressed vector decoding remain follow-up work.
 
 ## Run it
 
@@ -73,13 +75,13 @@ The SQL ends with `CHECKPOINT` so the file is self-contained before the read-onl
 
 - DuckDB storage version 69 (`v2.0.0`) only.
 - Unencrypted, checkpointed, single-file databases.
-- Physical header and block metadata plus logical segment metadata returned by DuckDB.
-- Browser discovery is capped at 100,000 physical blocks, with bounded metadata-chain scanning; partial scans are labeled.
+- Native catalog, row-group, persistent column, statistics, and recorded byte-size traversal.
+- Browser discovery is capped at 100,000 physical blocks. Metadata decoding is bounded by a 128 MiB cache, 4,096 slots per stream, one million traversal steps, and 64 object levels. Unsupported or incomplete native decoding falls back to physical inspection with an explanation.
 - Unknown bytes remain unknown. Free space is reported only when verified from the file's free list.
 
 The exporter rejects nonempty `.wal`, `.wal.checkpoint`, and `.wal.recovery` siblings before and after reading. The browser can inspect only the chosen file and cannot check for sibling WAL files: checkpoint and close a database before opening it.
 
-The reader does not decode DuckDB catalog pages or compressed column bytes. The sidecar does not expose or reconstruct user values. Older storage versions, encrypted files, files with unresolved WAL changes, and formats newer than storage version 69 are outside the current supported scope.
+The reader does not decompress column values or reconstruct every SQL expression, materialized table sample, VARIANT/GEOMETRY layout, or extension-specific storage feature. Unsupported layouts remain explicitly unknown instead of producing fragmentation estimates. Older storage versions, encrypted files, files with unresolved WAL changes, and formats newer than storage version 69 are outside the current supported scope.
 
 See [the storage-format notes](docs/storage-format.md) for the source references and the limits behind these claims.
 

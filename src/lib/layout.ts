@@ -53,6 +53,16 @@ export function continuousLayoutCount(
 export function rowCoverage(
   segments: Segment[],
 ): { start: number; end: number; count: number } | null {
+  const native = segments.find(
+    (segment) =>
+      segment.rowGroupRowStart != null && segment.rowGroupRowCount != null,
+  );
+  if (native)
+    return {
+      start: native.rowGroupRowStart!,
+      end: native.rowGroupRowStart! + native.rowGroupRowCount!,
+      count: native.rowGroupRowCount!,
+    };
   const ranges = segments
     .filter((segment) => segment.rowCount > 0)
     .map((segment) => ({

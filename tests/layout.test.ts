@@ -136,3 +136,17 @@ describe("logical layout helpers", () => {
     expect(continuousLayoutCount(50001, true, 49152, 4096, 50000)).toBe(50001);
   });
 });
+
+test("uses checkpoint row-group coverage instead of nested list element counts", () => {
+  const child = segment({
+    rowStart: 0,
+    rowCount: 10000,
+    rowGroupRowStart: 122880,
+    rowGroupRowCount: 100,
+  });
+  expect(rowCoverage([child])).toEqual({
+    start: 122880,
+    end: 122980,
+    count: 100,
+  });
+});
