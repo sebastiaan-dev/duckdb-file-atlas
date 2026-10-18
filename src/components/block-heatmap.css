@@ -10,6 +10,9 @@
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 7px;
 }
+.heatmap-row {
+  grid-template-rows: var(--heatmap-cell-size);
+}
 .heatmap-axis {
   margin-bottom: 11px;
   color: var(--muted, #85858e);
@@ -26,8 +29,11 @@
 .heatmap-axis > div,
 .heatmap-row-cells {
   display: grid;
-  grid-template-columns: repeat(var(--heatmap-columns), minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(
+    var(--heatmap-columns),
+    var(--heatmap-cell-size)
+  );
+  gap: var(--heatmap-gap);
 }
 .heatmap-axis > div > span {
   white-space: nowrap;
@@ -35,9 +41,10 @@
 }
 .heatmap-matrix {
   display: grid;
-  gap: 4px;
+  gap: var(--heatmap-gap);
 }
 .heatmap-row-label {
+  min-height: 0;
   display: flex;
   align-items: center;
   color: var(--muted, #85858e);
@@ -53,17 +60,18 @@
   display: block;
   width: 100%;
   min-width: 0;
+  height: var(--heatmap-cell-size);
+  min-height: 0;
   padding: 0;
-  aspect-ratio: 1.15;
+  aspect-ratio: 1;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--heatmap-cell-radius);
   background: var(--cell-fill, #d6d6df);
   cursor: pointer;
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 2%);
   transition:
     opacity 100ms ease,
-    box-shadow 100ms ease,
-    transform 100ms ease;
+    box-shadow 100ms ease;
 }
 .heatmap-cell.is-unknown {
   background:
@@ -85,34 +93,33 @@
 .heatmap-cell.is-hovered {
   z-index: 1;
   opacity: 1;
-  transform: scale(1.08);
-  box-shadow:
-    0 0 0 2px var(--surface, #fff),
-    0 0 0 3px var(--ink, #171719);
+  outline: var(--heatmap-ring) solid var(--ink, #171719);
+  outline-offset: 0;
+  box-shadow: inset 0 0 0 var(--heatmap-ring) var(--surface, #fff);
 }
 .heatmap-cell.is-linked {
   opacity: 1;
-  box-shadow: inset 0 0 0 2px var(--accent, #fa5b25);
+  box-shadow: inset 0 0 0 var(--heatmap-link-ring) var(--accent, #fa5b25);
 }
 .heatmap-cell.is-selected,
 .heatmap-cell:focus-visible {
   z-index: 2;
   opacity: 1;
-  outline: 2px solid var(--ink, #171719);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--surface, #fff);
+  outline: var(--heatmap-ring) solid var(--ink, #171719);
+  outline-offset: 0;
+  box-shadow: inset 0 0 0 var(--heatmap-ring) var(--surface, #fff);
 }
 .heatmap-cell-marker {
   display: none;
   position: absolute;
-  width: 4px;
-  height: 4px;
+  width: var(--heatmap-marker-size);
+  height: var(--heatmap-marker-size);
   border-radius: 50%;
   background: white;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 12%);
+  box-shadow: 0 0 0 var(--heatmap-ring) rgb(0 0 0 / 12%);
 }
 .heatmap-cell.is-selected .heatmap-cell-marker {
   display: block;
@@ -240,12 +247,7 @@
   .heatmap-offset-caption > span:nth-child(2) {
     display: none;
   }
-  .heatmap-axis,
-  .heatmap-row {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
   .heatmap-offset-caption {
-    padding-left: 41px;
     font-size: 8px;
   }
 }

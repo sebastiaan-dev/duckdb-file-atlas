@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { inspectFile, inspectPhysicalFile, readBytes } from "../src/lib/reader";
 import { applyManifest } from "../src/lib/semantic";
 import { collectManifest } from "../scripts/inspect";
+import { buildLogicalMetrics } from "../src/lib/logical-colors";
 
 const duckdb = process.env.DUCKDB_BIN;
 const native = duckdb ? describe : describe.skip;
@@ -107,7 +108,8 @@ native("native DuckDB revision 69 integration", () => {
     const path = join(directory, "upgraded.duckdb");
     const literal = "'" + path.replaceAll("'", "''") + "'";
     try {
-      const sql = `ATTACH ${literal} AS old (STORAGE_VERSION 'v1.2.0', BLOCK_SIZE 16384);
+      const sql = `SET force_compression='uncompressed';
+        ATTACH ${literal} AS old (STORAGE_VERSION 'v1.2.0', BLOCK_SIZE 16384);
         CREATE TABLE old.t AS SELECT i FROM range(10000) t(i); CHECKPOINT old; DETACH old;
         ATTACH ${literal} AS upgraded (STORAGE_VERSION 'v2.0.0');
         CREATE TABLE upgraded.t2 AS SELECT i FROM range(100) t(i); CHECKPOINT upgraded;`;
@@ -123,6 +125,42 @@ native("native DuckDB revision 69 integration", () => {
       const inspection = await inspectFile(file);
       expect(inspection.storageVersion).toBe(69);
       expect(inspection.blockSize).toBe(16384);
+      expect(inspection.native?.complete, inspection.warnings.join("\n")).toBe(
+        true,
+      );
+      expect(inspection.capabilities.semantic).toBe(true);
+      expect(inspection.capabilities.exactSizes).toBe(false);
+      expect(
+        inspection.native?.catalog?.map(({ name, rows }) => ({ name, rows })),
+      ).toEqual([
+        { name: "main.t", rows: 10000 },
+        { name: "main.t2", rows: 100 },
+      ]);
+      const retained = inspection.segments.filter(
+        (segment) => segment.table === "main.t" && segment.column === "i",
+      );
+      expect(retained.length).toBeGreaterThan(1);
+      let rowStart = 0;
+      for (const segment of retained) {
+        expect(segment.rowStart).toBe(rowStart);
+        expect(segment.min).toBe(String(rowStart));
+        rowStart += segment.rowCount;
+        expect(segment.max).toBe(String(rowStart - 1));
+        // Old streams do not record field 106; do not invent exact sizes.
+        expect(segment.byteSize).toBeNull();
+      }
+      expect(rowStart).toBe(10000);
+      const added = inspection.segments.filter(
+        (segment) => segment.table === "main.t2" && segment.column === "i",
+      );
+      expect(added).toHaveLength(1);
+      expect(added[0]).toMatchObject({
+        rowStart: 0,
+        rowCount: 100,
+        min: "0",
+        max: "99",
+        byteSize: 800,
+      });
       expect(inspection.blocks.some((block) => block.role === "metadata")).toBe(
         true,
       );
@@ -133,6 +171,131 @@ native("native DuckDB revision 69 integration", () => {
 });
 
 native("native checkpoint semantics and allocation sizes", () => {
+  for (const version of ["v1.2.0", "v1.5.0"]) {
+    test(`reads retained ${version} VARCHAR bounds after upgrading to revision 69`, async () => {
+      const directory = await mkdtemp(
+        join(tmpdir(), "file-atlas-string-upgrade-"),
+      );
+      const path = join(directory, "strings.duckdb");
+      const literal = "'" + path.replaceAll("'", "''") + "'";
+      try {
+        const sql = `SET force_compression='uncompressed';
+          ATTACH ${literal} AS old (STORAGE_VERSION '${version}', BLOCK_SIZE 16384);
+          CREATE TABLE old.strings AS SELECT printf('%04d', i) AS short_text,
+            'prefix-' || printf('%08d', i) AS long_text FROM range(1000) t(i);
+          CHECKPOINT old; DETACH old;
+          ATTACH ${literal} AS upgraded (STORAGE_VERSION 'v2.0.0');
+          CREATE TABLE upgraded.fresh AS SELECT i FROM range(100) t(i); CHECKPOINT upgraded;`;
+        const child = Bun.spawn([duckdb!, "-no-agent", "-batch", "-c", sql], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const stderr = await new Response(child.stderr).text();
+        expect(await child.exited, stderr).toBe(0);
+        const inspection = await inspectFile(Bun.file(path) as unknown as File);
+        expect(inspection.storageVersion).toBe(69);
+        expect(
+          inspection.native?.complete,
+          inspection.warnings.join("\n"),
+        ).toBe(true);
+        expect(inspection.capabilities.semantic).toBe(true);
+        expect(inspection.capabilities.exactSizes).toBe(false);
+        expect(
+          inspection.native?.catalog?.find(
+            (table) => table.name === "main.strings",
+          )?.rows,
+        ).toBe(1000);
+        for (const column of ["short_text", "long_text"]) {
+          const segments = inspection.segments.filter(
+            (segment) => segment.column === column,
+          );
+          expect(segments.length).toBeGreaterThan(0);
+          let rowStart = 0;
+          for (const segment of segments) {
+            expect(segment.rowStart).toBe(rowStart);
+            expect(segment.byteSize).toBeNull();
+            rowStart += segment.rowCount;
+            const short = column === "short_text";
+            expect(segment.min).toBe(
+              short ? String(segment.rowStart).padStart(4, "0") : "prefix-0",
+            );
+            expect(segment.max).toBe(
+              short ? String(rowStart - 1).padStart(4, "0") : "prefix-0",
+            );
+            expect(JSON.parse(segment.stats!).string).toEqual({
+              minExact: short,
+              maxExact: short,
+              maxLength: short ? 4 : 15,
+            });
+          }
+          expect(rowStart).toBe(1000);
+        }
+        expect(
+          inspection.segments.find(
+            (segment) =>
+              segment.table === "main.fresh" && segment.column === "i",
+          ),
+        ).toMatchObject({ rowCount: 100, byteSize: 800 });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }, 60000);
+  }
+
+  test("preserves temporal infinity bounds and excludes them from value-range colors", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "file-atlas-infinity-"));
+    const path = join(directory, "infinity.duckdb");
+    try {
+      const types = [
+        "DATE",
+        "TIMESTAMP",
+        "TIMESTAMP_S",
+        "TIMESTAMP_MS",
+        "TIMESTAMP_NS",
+        "TIMESTAMPTZ",
+      ];
+      const projection = types
+        .map((type, index) => `v::${type} AS c${index}`)
+        .join(", ");
+      const sql = `SET force_compression='uncompressed';
+        CREATE TABLE both_bounds AS SELECT ${projection} FROM (VALUES ('-infinity'), ('infinity')) t(v);
+        CREATE TABLE negative_bound AS SELECT ${projection} FROM (VALUES ('-infinity'), ('2026-01-01')) t(v);
+        CREATE TABLE positive_bound AS SELECT ${projection} FROM (VALUES ('2026-01-01'), ('infinity')) t(v);
+        CHECKPOINT;`;
+      const child = Bun.spawn(
+        [duckdb!, path, "-no-agent", "-batch", "-c", sql],
+        {
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const stderr = await new Response(child.stderr).text();
+      expect(await child.exited, stderr).toBe(0);
+      const inspection = await inspectFile(Bun.file(path) as unknown as File);
+      expect(inspection.native?.complete, inspection.warnings.join("\n")).toBe(
+        true,
+      );
+      const values = inspection.segments.filter(
+        (segment) => segment.columnType !== "VALIDITY",
+      );
+      expect(values).toHaveLength(types.length * 3);
+      for (const segment of values) {
+        const stats = JSON.parse(segment.stats!);
+        if (segment.table !== "main.positive_bound") {
+          expect(segment.min).toBe("-infinity");
+          expect(stats.min).toBe("-infinity");
+        }
+        if (segment.table !== "main.negative_bound") {
+          expect(segment.max).toBe("infinity");
+          expect(stats.max).toBe("infinity");
+        }
+      }
+      expect(buildLogicalMetrics(inspection.segments).valueColumns).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 60000);
+
   test("reads nested columns, indexes and string overflow without a manifest", async () => {
     const directory = await mkdtemp(join(tmpdir(), "file-atlas-nested-"));
     const path = join(directory, "nested.duckdb");

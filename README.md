@@ -16,7 +16,7 @@ The exporter uses a compatible, read-only DuckDB CLI. Sidecars are matched to th
 
 ## Interface
 
-The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and supports three cell densities, search dimming, pointer-target highlights, and bounded tooltips. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block. The sample is an illustrative 80 MiB layout with 320 physical blocks and 582 segments; it is not a real database file.
+The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and has a **Tile size** slider from 4–24 px, defaulting to compact 8 px squares. Columns adapt to the available width so small tiles reveal the overall file structure rather than stretching to fill a fixed column count. Search dimming, pointer-target highlights, and bounded tooltips remain available. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block. The sample is an illustrative 80 MiB layout with 320 physical blocks and 582 segments; it is not a real database file.
 
 The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](https://bklit.com/docs/components/heatmap-chart) to physical block IDs. It does not use calendar dates or add placeholder blocks. The implementation uses the existing React/shadcn stack without a new chart dependency.
 
@@ -24,7 +24,7 @@ The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](h
 
 Use the physical grid as the default map: its positions preserve disk-offset order, while selection expands into a proportional byte strip and a bounded hex inspector. Keep the three 4 KiB headers separate so equal-sized tiles never imply that they occupy as much disk space as a data block. A linked row-group × column matrix answers which logical data owns those blocks; cells retain every segment, including separate validity segments. Mixed-owner stripes expose shared physical blocks. Unknown byte sizes stay unknown, so a color never promises an inferred storage footprint.
 
-The layouts share selection and pointer highlighting. Animated transitions, predicate/zonemap pruning, and compressed vector decoding remain follow-up work.
+The layouts share selection and pointer highlighting. The selected block's byte strip and range-list swatches follow the main physical-map color setting, without a separate selector or legend. Table, column, and compression colors match the map's palettes; space-used and internal-free-space modes use the same measured block ramp. Unused bytes inside allocated blocks and whole reusable free blocks have distinct green fills, while unknown bytes stay hatched in every mode. Colors never infer unrecorded segment sizes. Animated transitions, predicate/zonemap pruning, and compressed vector decoding remain follow-up work.
 
 ## Run it
 
@@ -43,6 +43,15 @@ bun run build
 ```
 
 The semantic tests validate manifest shape, file matching, block pointers, physical bounds, exact range handling, and reapplication. The optional native integration test runs when `DUCKDB_BIN` points to a compatible DuckDB executable.
+
+Run the Chromium interaction regressions with:
+
+```sh
+bunx playwright install chromium
+bun run test:browser
+```
+
+These tests also run in CI. They generate local database fixtures and require no DuckDB executable. See [the browser-test notes](tests/browser/README.md) for details.
 
 ## Make a demo database
 
@@ -109,4 +118,6 @@ The Free list view follows the active checkpoint's allocator stream. It shows se
 
 Whole free blocks are reusable allocations, separate from gaps inside live data blocks and reusable slots inside metadata blocks. A bounded/incomplete free-list scan shows unknown totals. Historical owners and the time a block was freed are not stored by this snapshot. Only very large maps append additional runs and allocator rows while scrolling.
 
-Free-block runs use a horizontal chart with one tile per block at individual zoom. All rows share the same scale in disk-offset order; filtering retains the full file's scale. Fit groups long runs into power-of-two block ranges, which expand to individual blocks on click. Hover shows IDs, sizes and offsets; arrow keys and Home/End move within a run, and Enter inspects a block or expands a group. SVG patterns keep individual zoom bounded in DOM size even for very long runs.
+Free-block runs open as a lean, Bklit-inspired horizontal bar chart: continuous rounded bars show run lengths against the full file's largest run, with subtle vertical ticks and one count at each bar end. Rows stay in disk-offset order, but the x axis measures **run length**, not file offsets. Filtering retains the global scale. A quiet color legend distinguishes serialized free-list entries from implicit blocks outside the checkpoint extent; hover or keyboard focus shows the range, block count, byte size, and provenance.
+
+Click a bar or press Enter to explore that run's blocks, then use **Back to run overview** to return. Detail provides Fit and zoom controls: long runs group into power-of-two ranges that expand on click, while individual zoom has one tile per block. Hover shows IDs, sizes, and offsets; arrow keys and Home/End move within a run, and Enter or Space inspects a block or expands a group. Numeric ID search reveals the exact matching block without moving focus out of the search input. SVG patterns keep detail bounded in DOM size even for 100,000-block runs, without a chart dependency. Both views adapt to light/dark themes and narrow screens.

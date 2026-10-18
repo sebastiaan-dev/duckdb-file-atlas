@@ -207,6 +207,38 @@ describe("logical color measurements", () => {
     const tz = metrics.valueColumns.find((c) => c.key === columnKey(rows[2]))!;
     expect(tz.max).toBe(tz.min);
   });
+  it("excludes infinite temporal bounds instead of assigning them a finite value range", () => {
+    for (const columnType of [
+      "DATE",
+      "TIMESTAMP",
+      "TIMESTAMP_S",
+      "TIMESTAMP_MS",
+      "TIMESTAMP_NS",
+      "TIMESTAMP WITH TIME ZONE",
+    ]) {
+      const finite =
+        columnType === "DATE" ? "2026-01-01" : "2026-01-01T00:00:00Z";
+      const rows = [
+        segment("negative", { columnType, min: "-infinity", max: finite }),
+        segment("positive", { columnType, min: finite, max: "infinity" }),
+        segment("both", { columnType, min: "-infinity", max: "infinity" }),
+        segment("finite", { columnType, min: finite, max: finite }),
+      ];
+      const metrics = buildLogicalMetrics(rows);
+      expect(metrics.valueColumns).toHaveLength(1);
+      expect([...metrics.valueColumns[0].ranges.keys()]).toEqual(["finite"]);
+      for (const row of rows.slice(0, 3)) {
+        expect(
+          logicalAppearance(
+            row,
+            "value-range",
+            metrics,
+            metrics.valueColumns[0],
+          ).unknown,
+        ).toBe(true);
+      }
+    }
+  });
   it("handles empty and constant value domains", () => {
     expect(buildLogicalMetrics([]).valueColumns).toEqual([]);
     const row = segment("constant", {

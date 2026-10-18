@@ -10,6 +10,7 @@ import {
   type SegmentAppearance,
 } from "@/lib/logical-colors";
 import { fragmentationSummary, internalFreeBytes } from "@/lib/fragmentation";
+import { byteRangeAppearance } from "@/lib/byte-range-colors";
 import {
   memo,
   useDeferredValue,
@@ -82,7 +83,6 @@ import type {
 } from "@/lib/types";
 
 type ViewMode = "physical" | "logical" | "free-list";
-type Density = 0 | 1 | 2;
 type ByteView = { blockId: number; offset: number; bytes: Uint8Array } | null;
 
 function formatBytes(value: number | null | undefined, precise = false) {
@@ -186,7 +186,7 @@ export default function App() {
   const [logicalColorMode, setLogicalColorMode] =
     useState<LogicalColorMode>("compression");
   const [valueColumnKey, setValueColumnKey] = useState("");
-  const [density, setDensity] = useState<Density>(0);
+  const [cellSize, setCellSize] = useState(8);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
@@ -471,7 +471,6 @@ export default function App() {
     setSelectedSegmentId(segment.id);
     setSelectedBlockId(segment.blockId >= 0 ? segment.blockId : null);
     setSelectedHeaderSlot(null);
-    setByteView(null);
   }, []);
 
   const chooseBlock = useCallback((block: FileBlock) => {
@@ -479,7 +478,6 @@ export default function App() {
     setView("physical");
     setSelectedSegmentId(null);
     setSelectedHeaderSlot(null);
-    setByteView(null);
   }, []);
 
   const loadBlockBytes = useCallback(
@@ -518,14 +516,23 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (selectedBlock) {
+    // The byte target, not the selection gesture, owns the preview lifecycle.
+    // Re-selecting it (including checkpoint -> raw header) preserves paging.
+    setByteView(null);
+    setLoadingBytes(false);
+    if (selectedBlock && !loadingFile) {
       const selectedOffset =
         selectedSegment?.blockId === selectedBlock.id
           ? selectedBlock.offset + selectedSegment.offset
           : selectedBlock.offset;
       void loadBlockBytes(selectedBlock, selectedOffset);
     }
-  }, [selectedBlock, selectedSegment, loadBlockBytes]);
+    // Invalidate initial reads and page reads on target changes, deselection,
+    // file replacement and unmount, even when no replacement read is started.
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [selectedBlock, selectedSegment, loadBlockBytes, loadingFile]);
 
   useEffect(() => {
     if (view !== "physical" || firstMatchingBlockId == null) return;
@@ -551,7 +558,6 @@ export default function App() {
     setSelectedHeaderSlot(slot);
     setSelectedBlockId(slot === 1 ? -2 : -1);
     setSelectedSegmentId(null);
-    setByteView(null);
   };
 
   const onDrop = (event: React.DragEvent) => {
@@ -1048,30 +1054,29 @@ export default function App() {
                     </div>
                   </div>
                   {view === "physical" && (
-                    <div className="zoom-control" aria-label="Map tile density">
-                      <div className="zoom-buttons">
-                        {([0, 1, 2] as Density[]).map((level) => (
-                          <button
-                            key={level}
-                            type="button"
-                            className={density === level ? "active" : ""}
-                            onClick={() => setDensity(level)}
-                            aria-label={
-                              [
-                                "Compact heatmap",
-                                "Balanced heatmap",
-                                "Larger heatmap cells",
-                              ][level]
-                            }
-                            aria-pressed={density === level}
-                          >
-                            <span
-                              className={`density-glyph ${["small", "medium", "large"][level]}`}
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <label
+                      className="tile-size-control"
+                      style={
+                        {
+                          "--tile-progress": `${((cellSize - 4) / 20) * 100}%`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <span>Tile size</span>
+                      <input
+                        type="range"
+                        aria-label="Block tile size"
+                        aria-valuetext={`${cellSize} pixel tiles`}
+                        min={4}
+                        max={24}
+                        step={1}
+                        value={cellSize}
+                        onChange={(event) =>
+                          setCellSize(Number(event.target.value))
+                        }
+                      />
+                      <output>{cellSize} px</output>
+                    </label>
                   )}
                 </div>
                 {view === "physical" ? (
@@ -1130,7 +1135,7 @@ export default function App() {
                       hoveredBlockId={effectiveHoverBlock}
                       matchingBlockIds={query ? matchingBlockIds : null}
                       onSelect={chooseBlock}
-                      density={density}
+                      cellSize={cellSize}
                       linkedBlockIds={linkedBlockIds}
                     />
                     {physicalLayout.hasMore && (
@@ -1330,6 +1335,7 @@ export default function App() {
                   />
                 ) : selectedBlock ? (
                   <BlockDetails
+                    colorMode={colorMode}
                     onShowFreeList={
                       inspection.freeList &&
                       (selectedBlock.role === "free" ||
@@ -1739,6 +1745,7 @@ function CheckpointDetails({
 
 function BlockDetails({
   onShowFreeList,
+  colorMode,
   block,
   inspection,
   segmentsById,
@@ -1750,6 +1757,7 @@ function BlockDetails({
   onBlockClick,
   onBytePage,
 }: {
+  colorMode: ColorMode;
   block: FileBlock;
   inspection: FileInspection;
   segmentsById: Map<string, Segment>;
@@ -1771,6 +1779,17 @@ function BlockDetails({
     .filter((candidate): candidate is FileBlock => Boolean(candidate));
   const orderedRanges = [...block.ranges].sort(
     (a, b) => a.offset - b.offset || a.size - b.size,
+  );
+  const rangeAppearances = new Map(
+    orderedRanges.map((range) => [
+      range.id,
+      byteRangeAppearance(
+        range,
+        block,
+        colorMode,
+        range.segmentId ? segmentsById.get(range.segmentId) : undefined,
+      ),
+    ]),
   );
   return (
     <div className="detail-content">
@@ -1863,6 +1882,7 @@ function BlockDetails({
           <>
             <div
               className="byte-strip"
+              role="group"
               aria-label="Proportional byte ranges within block"
             >
               {orderedRanges.map((range) => {
@@ -1885,7 +1905,11 @@ function BlockDetails({
                     type="button"
                     key={range.id}
                     className={`byte-range range-${range.kind}`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      background: rangeAppearances.get(range.id)!.background,
+                    }}
                     title={`${range.label}: ${formatBytes(range.size)} at ${formatOffset(range.offset)}${segment ? " · Select owning segment" : ""}`}
                     aria-label={`${range.label}, ${formatBytes(range.size)}, offset ${formatOffset(range.offset)}${segment ? ", jump to segment details" : ""}`}
                     disabled={!segment}
@@ -1912,7 +1936,12 @@ function BlockDetails({
                       if (segment) onSegmentClick(segment);
                     }}
                   >
-                    <i className={`range-swatch range-${range.kind}`} />
+                    <i
+                      className={`range-swatch range-${range.kind}`}
+                      style={{
+                        background: rangeAppearances.get(range.id)!.background,
+                      }}
+                    />
                     <span>{range.label}</span>
                     <small>{formatOffset(range.offset)}</small>
                     <strong>{formatBytes(range.size)}</strong>

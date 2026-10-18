@@ -62,7 +62,7 @@ function formatDecimal(value: string, scale: number): string {
 
 function formatDate(value: bigint): string | undefined {
   if (value === 2147483647n) return "infinity";
-  if (value === -2147483648n) return "-infinity";
+  if (value === -2147483647n) return "-infinity";
   const date = new Date(Number(value) * 86_400_000);
   return Number.isNaN(date.getTime())
     ? undefined
@@ -85,7 +85,7 @@ function formatEpoch(
   precision: number,
 ): string | undefined {
   if (value === 9223372036854775807n) return "infinity";
-  if (value === -9223372036854775808n) return "-infinity";
+  if (value === -9223372036854775807n) return "-infinity";
   const [seconds, remainder] = floorDiv(value, unitsPerSecond);
   const millis = Number(seconds * 1000n);
   const date = new Date(millis);
@@ -302,6 +302,53 @@ function readStringStats(
   reader: BinaryReader,
   byteString = false,
 ): { min?: string; max?: string; info: DecodedStatistics["string"] } {
+  const decoder = new TextDecoder("utf-8");
+  const render = (value: Uint8Array) =>
+    byteString
+      ? `0x${Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("")}`
+      : decoder.decode(value);
+  if (reader.optional(200)) {
+    // Pre-v2.0 streams can survive a file upgrade. DuckDB's LegacyReadMinMax /
+    // LegacyGetMinMaxType use zero-padded eight-byte bounds, not packed field 206.
+    const minBytes = reader.blob();
+    reader.field(201);
+    const maxBytes = reader.blob();
+    if (minBytes.length !== 8 || maxBytes.length !== 8)
+      throw new Error(
+        "Invalid legacy checkpoint string statistics min/max payload.",
+      );
+    reader.field(202);
+    reader.bool(); // has_unicode
+    reader.field(203);
+    const hasMaxLength = reader.bool();
+    reader.field(204);
+    const storedMaxLength = reader.uint();
+    const maxLength = hasMaxLength ? storedMaxLength : undefined;
+    const unset =
+      minBytes[0] > maxBytes[0] ||
+      (minBytes.every((byte) => byte === 0) &&
+        maxBytes.every((byte) => byte === 255));
+    const exact =
+      hasMaxLength &&
+      storedMaxLength <= 8 &&
+      (storedMaxLength === 0 ||
+        (minBytes[storedMaxLength - 1] !== 0 &&
+          maxBytes[storedMaxLength - 1] !== 0));
+    const trim = (bytes: Uint8Array) => {
+      let length = bytes.length;
+      while (length && bytes[length - 1] === 0) length--;
+      return bytes.subarray(0, length);
+    };
+    return {
+      min: unset ? undefined : render(trim(minBytes)),
+      max: unset ? undefined : render(trim(maxBytes)),
+      info: {
+        minExact: unset ? undefined : exact,
+        maxExact: unset ? undefined : exact,
+        maxLength,
+      },
+    };
+  }
   const hasMaxLength = reader.optional(204);
   const maxLength = hasMaxLength ? reader.uint() : undefined;
   const bytes = reader.optional(205) ? reader.blob() : undefined;
@@ -315,11 +362,6 @@ function readStringStats(
     throw new Error("Invalid checkpoint string statistics lengths.");
   // Field 207 is an optional_idx, encoded as a uint64 (INVALID_INDEX means unknown).
   if (reader.optional(207)) reader.unsigned();
-  const decoder = new TextDecoder("utf-8");
-  const render = (value: Uint8Array) =>
-    byteString
-      ? `0x${Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("")}`
-      : decoder.decode(value);
   const min = bytes ? render(bytes.subarray(0, minLength)) : undefined;
   const max = bytes
     ? render(bytes.subarray(12, 12 + maxValueLength))
@@ -572,6 +614,9 @@ function appendPointerSegments(
   let totalTuples = 0;
   const result = reader.list((index) =>
     reader.object(() => {
+      // Deleted in v1.5: like DuckDB, consume the old row_start but derive row
+      // ranges from the parent row group and tuple counts, including nested leaves.
+      if (reader.optional(100)) reader.unsigned();
       const tupleCount = reader.optional(101) ? reader.uint() : 0;
       reader.field(102);
       const pointer = readBlockPointer(reader);

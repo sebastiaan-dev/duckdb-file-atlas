@@ -1,9 +1,11 @@
 import { internalFreeBytes } from "@/lib/fragmentation";
+import { heatmapLayout } from "@/lib/heatmap-layout";
 import {
   memo,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,7 +25,7 @@ export interface BlockHeatmapProps {
   hoveredBlockId: number | null;
   matchingBlockIds: Set<number> | null;
   onSelect: (block: FileBlock) => void;
-  density: 0 | 1 | 2;
+  cellSize: number;
   linkedBlockIds?: Set<number>;
 }
 
@@ -171,14 +173,16 @@ export const BlockHeatmap = memo(function BlockHeatmap({
   hoveredBlockId,
   matchingBlockIds,
   onSelect,
-  density,
+  cellSize,
   linkedBlockIds,
 }: BlockHeatmapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef(new Map<number, HTMLButtonElement>());
+  const pendingGridFocus = useRef<number | null>(null);
   const [width, setWidth] = useState(800);
   const [focusedId, setFocusedId] = useState<number | null>(null);
-  const [hover, setHover] = useState<{
+  const [hoverState, setHover] = useState<{
+    layoutKey: string;
     id: number;
     left: number;
     top: number;
@@ -195,10 +199,12 @@ export const BlockHeatmap = memo(function BlockHeatmap({
     () => new Map(ordered.map((block, index) => [block.id, index])),
     [ordered],
   );
-  const columns = Math.max(
-    4,
-    Math.min([32, 24, 16][density], Math.floor((width - 48) / 18)),
-  );
+  const layout = heatmapLayout(width, cellSize);
+  const { columns, gap, labelStride, tickStride } = layout;
+  const layoutKey = `${width}:${layout.cellSize}`;
+  // Hide a stale tooltip immediately, before the resize-reset effect runs.
+  const hover = hoverState?.layoutKey === layoutKey ? hoverState : null;
+  useEffect(() => setHover(null), [layoutKey]);
   const models = useMemo(
     () =>
       ordered.map((block): CellModel => {
@@ -257,12 +263,35 @@ export const BlockHeatmap = memo(function BlockHeatmap({
   useEffect(() => {
     const node = hostRef.current;
     if (!node) return;
-    const observer = new ResizeObserver(([entry]) =>
-      setWidth(entry.contentRect.width),
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      // Capture focus before regrouping can detach the focused cell. Slider
+      // changes have focus outside the grid and must never restore grid focus.
+      const active = document.activeElement;
+      pendingGridFocus.current =
+        active instanceof HTMLButtonElement &&
+        node.contains(active) &&
+        active.dataset.blockId != null
+          ? Number(active.dataset.blockId)
+          : null;
+      setWidth(entry.contentRect.width);
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    const id = pendingGridFocus.current;
+    pendingGridFocus.current = null;
+    if (id == null) return;
+    const active = document.activeElement;
+    // Do not override a newer focus gesture between measurement and commit.
+    if (
+      active === document.body ||
+      (active instanceof HTMLButtonElement &&
+        hostRef.current?.contains(active) &&
+        Number(active.dataset.blockId) === id)
+    )
+      cellRefs.current.get(id)?.focus({ preventScroll: true });
+  }, [columns]);
   function targetCell(target: EventTarget | null) {
     return target instanceof Element
       ? target.closest<HTMLButtonElement>("[data-block-id]")
@@ -274,9 +303,10 @@ export const BlockHeatmap = memo(function BlockHeatmap({
     const rect = cell.getBoundingClientRect(),
       host = hostRef.current.getBoundingClientRect();
     setHover((previous) =>
-      previous?.id === id
+      previous?.id === id && previous.layoutKey === layoutKey
         ? previous
         : {
+            layoutKey,
             id,
             left: rect.left - host.left,
             top: rect.top - host.top,
@@ -321,7 +351,7 @@ export const BlockHeatmap = memo(function BlockHeatmap({
       cellRefs.current
         .get(selectedBlockId)
         ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selectedBlockId, columns]);
+  }, [selectedBlockId]);
   return (
     <Tooltip.Provider>
       <Tooltip.Root
@@ -333,8 +363,18 @@ export const BlockHeatmap = memo(function BlockHeatmap({
         <div
           ref={hostRef}
           className="block-heatmap"
-          style={{ "--heatmap-columns": columns } as CSSProperties}
-          onPointerOver={(event) => {
+          style={
+            {
+              "--heatmap-columns": columns,
+              "--heatmap-cell-size": `${layout.cellSize}px`,
+              "--heatmap-gap": `${gap}px`,
+              "--heatmap-ring": `${gap / 2}px`,
+              "--heatmap-marker-size": `${Math.max(1, Math.min(4, layout.cellSize / 5))}px`,
+              "--heatmap-cell-radius": `${Math.min(3, layout.cellSize / 8)}px`,
+              "--heatmap-link-ring": `${Math.min(2, layout.cellSize / 8)}px`,
+            } as CSSProperties
+          }
+          onPointerMove={(event) => {
             const cell = targetCell(event.target);
             if (cell) showCell(cell);
             else setHover(null);
@@ -363,7 +403,8 @@ export const BlockHeatmap = memo(function BlockHeatmap({
         >
           <p id={helpId} className="heatmap-sr-only">
             Blocks in ascending file offset order. Use arrow keys to move, Enter
-            or Space to inspect. Row labels show the first block ID in each row.
+            or Space to inspect. Row labels periodically show the first block ID
+            in a row.
           </p>
           {ordered.length ? (
             <>
@@ -372,7 +413,10 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                 <div>
                   {Array.from({ length: columns }, (_, i) => (
                     <span key={i}>
-                      {i % 8 === 0 ? `+${i.toString().padStart(2, "0")}` : ""}
+                      {i % tickStride === 0 &&
+                      (i === 0 || i + tickStride <= columns)
+                        ? `+${i.toString().padStart(2, "0")}`
+                        : ""}
                     </span>
                   ))}
                 </div>
@@ -393,7 +437,9 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                     key={row[0].block.id}
                   >
                     <span className="heatmap-row-label" aria-hidden="true">
-                      {row[0].block.id.toString().padStart(4, "0")}
+                      {rowIndex % labelStride === 0
+                        ? row[0].block.id.toString().padStart(4, "0")
+                        : ""}
                     </span>
                     <div className="heatmap-row-cells" role="presentation">
                       {row.map((model, col) => (
