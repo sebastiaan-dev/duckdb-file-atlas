@@ -10,6 +10,26 @@ export const roleColors: Record<StorageRole, string> = {
   unknown: "var(--chart-unknown)",
 };
 export const spaceRamp = ["#eeecf8", "#c4bfec", "#9890df", "#6258ce"] as const;
+/**
+ * Lower bounds (exclusive) for spaceRamp steps 1–3. Cells and legends share
+ * these so the legend always describes the stepped colors actually drawn.
+ */
+export const fragmentationSteps = [0.02, 0.2, 0.5] as const;
+export const utilizationSteps = [0.08, 0.45, 0.8] as const;
+export function rampStep(ratio: number, steps: readonly number[]) {
+  return steps.filter((step) => ratio > step).length;
+}
+/** Human-readable range labels for each ramp step, e.g. "≤ 2%", "2–20%". */
+export function rampLabels(steps: readonly number[]) {
+  const pct = (value: number) => `${Math.round(value * 100)}%`;
+  return [
+    `≤ ${pct(steps[0])}`,
+    ...steps
+      .slice(1)
+      .map((step, i) => `${Math.round(steps[i] * 100)}–${pct(step)}`),
+    `> ${pct(steps.at(-1)!)}`,
+  ];
+}
 export const tablePalette = [
   "#6961d8",
   "#72aaa7",
@@ -75,16 +95,12 @@ export function blockCellColors(
     const unused = internalFreeBytes(block);
     if (unused == null) return [roleColors.unknown];
     const ratio = unused / block.size;
-    return [
-      spaceRamp[ratio > 0.5 ? 3 : ratio > 0.2 ? 2 : ratio > 0.02 ? 1 : 0],
-    ];
+    return [spaceRamp[rampStep(ratio, fragmentationSteps)]];
   }
   if (mode === "utilization") {
     if (block.usedBytes == null || block.size <= 0) return [roleColors.unknown];
     const ratio = Math.max(0, Math.min(1, block.usedBytes / block.size));
-    return [
-      spaceRamp[ratio > 0.8 ? 3 : ratio > 0.45 ? 2 : ratio > 0.08 ? 1 : 0],
-    ];
+    return [spaceRamp[rampStep(ratio, utilizationSteps)]];
   }
   const owners = blockOwners(block, mode, segments);
   return owners.length

@@ -13,7 +13,7 @@ import {
   DetailBody,
   InfoTip,
   TipContent,
-} from "@/components/index-tooltip";
+} from "@/components/detail-tooltip";
 import {
   BUFFER_TILE_LIMIT,
   initialBufferCount,

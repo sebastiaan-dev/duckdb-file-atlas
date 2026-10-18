@@ -20,10 +20,8 @@ export function DetailBody({
 }) {
   return (
     <>
-      <div className="index-tip-title">
-        {swatch && (
-          <i className="index-swatch" style={{ background: swatch }} />
-        )}
+      <div className="tip-title">
+        {swatch && <i className="tip-swatch" style={{ background: swatch }} />}
         <strong>{title}</strong>
         {subtitle && <span>{subtitle}</span>}
       </div>
@@ -35,7 +33,7 @@ export function DetailBody({
           </div>
         ))}
       </dl>
-      {hint && <p className="index-tip-hint">{hint}</p>}
+      {hint && <p className="tip-hint">{hint}</p>}
     </>
   );
 }
@@ -55,14 +53,14 @@ export function TipContent({
     <Tooltip.Portal>
       <Tooltip.Content
         {...props}
-        className={`index-tip${wide ? " index-tip-prose" : ""}`}
+        className={`tip${wide ? " tip-prose" : ""}`}
         side="top"
         sideOffset={8}
         collisionPadding={16}
         avoidCollisions
       >
         {children}
-        <Tooltip.Arrow className="index-tip-arrow" />
+        <Tooltip.Arrow className="tip-arrow" />
       </Tooltip.Content>
     </Tooltip.Portal>
   );
@@ -110,7 +108,7 @@ export function InfoTip({
       <Tooltip.Trigger asChild>
         <button
           type="button"
-          className="index-info"
+          className="info-button"
           aria-label={label}
           aria-expanded={pinned}
           onClick={(event) => {

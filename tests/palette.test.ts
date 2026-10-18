@@ -1,7 +1,11 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   blockCellColors,
   blockOwners,
+  fragmentationSteps,
+  rampLabels,
+  rampStep,
+  utilizationSteps,
   roleColors,
   stableColor,
   tablePalette,
@@ -90,4 +94,18 @@ test("existing segment owners retain their stable keys with named indexes added"
     "main.t / named_index",
   ]);
   expect(blockOwners(block, "compression", [segment])).toEqual(["BitPacking"]);
+});
+
+describe("space ramp legend steps", () => {
+  test("labels describe the same thresholds the cells use", () => {
+    expect(rampLabels(fragmentationSteps)).toEqual([
+      "≤ 2%",
+      "2–20%",
+      "20–50%",
+      "> 50%",
+    ]);
+    expect(rampStep(0.02, fragmentationSteps)).toBe(0);
+    expect(rampStep(0.021, fragmentationSteps)).toBe(1);
+    expect(rampStep(0.9, utilizationSteps)).toBe(3);
+  });
 });

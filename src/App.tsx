@@ -56,6 +56,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { useContinuousLayout } from "@/hooks/use-continuous-layout";
 import { BlockHeatmap } from "@/components/block-heatmap";
+import { DetailTip, InfoTip } from "@/components/detail-tooltip";
+import { PhysicalLegend } from "@/components/physical-legend";
 import {
   roleColors,
   tablePalette,
@@ -1099,52 +1101,70 @@ export default function App() {
                 </div>
                 {view === "physical" ? (
                   <div className="map-body">
-                    <div className="header-region">
-                      <div className="region-heading">
-                        <span>FILE HEADERS</span>
-                        <small>3 × 4 KiB · before block 0</small>
-                      </div>
-                      <div className="header-chips">
-                        {headerBlocks.map((block) => (
-                          <button
-                            type="button"
+                    <div
+                      className="header-chips"
+                      role="group"
+                      aria-label="File headers"
+                    >
+                      <span className="header-chips-label">File headers</span>
+                      {headerBlocks.map((block) => {
+                        const pressed =
+                          selectedBlockId === block.id ||
+                          (selectedHeaderSlot === 1 && block.id === -2) ||
+                          (selectedHeaderSlot === 2 && block.id === -1);
+                        const name =
+                          block.id === -3
+                            ? "Main header"
+                            : `Checkpoint ${block.id === -2 ? 1 : 2}`;
+                        return (
+                          <DetailTip
                             key={block.id}
-                            className={`header-chip ${selectedBlockId === block.id || (selectedHeaderSlot === 1 && block.id === -2) || (selectedHeaderSlot === 2 && block.id === -1) ? "selected" : ""}`}
-                            onClick={() =>
+                            title={name}
+                            rows={[
+                              ["Size", formatBytes(block.size)],
+                              ["Offset", formatOffset(block.offset)],
+                            ]}
+                            hint={
                               block.id === -3
-                                ? chooseBlock(block)
-                                : selectCheckpoint(block.id === -2 ? 1 : 2)
+                                ? "Precedes block 0 · click to inspect"
+                                : "Click to inspect this checkpoint"
                             }
-                            onMouseEnter={() => setHoveredBlockId(block.id)}
-                            onMouseLeave={() => setHoveredBlockId(null)}
-                            aria-pressed={
-                              selectedBlockId === block.id ||
-                              (selectedHeaderSlot === 1 && block.id === -2) ||
-                              (selectedHeaderSlot === 2 && block.id === -1)
-                            }
-                            aria-label={`${block.label}, ${formatBytes(block.size)}`}
                           >
-                            <span className="header-chip-icon">
-                              <FileText size={14} />
-                            </span>
-                            <span>
-                              {block.id === -3
-                                ? "Main header"
-                                : `Checkpoint ${block.id === -2 ? 1 : 2}`}
-                            </span>
-                            <small>4 KiB</small>
-                          </button>
-                        ))}
-                      </div>
+                            <button
+                              type="button"
+                              className={`header-chip ${pressed ? "selected" : ""}`}
+                              onClick={() =>
+                                block.id === -3
+                                  ? chooseBlock(block)
+                                  : selectCheckpoint(block.id === -2 ? 1 : 2)
+                              }
+                              onMouseEnter={() => setHoveredBlockId(block.id)}
+                              onMouseLeave={() => setHoveredBlockId(null)}
+                              aria-pressed={pressed}
+                              aria-label={`${block.label}, ${formatBytes(block.size)}`}
+                            >
+                              <FileText size={12} aria-hidden="true" />
+                              {name}
+                            </button>
+                          </DetailTip>
+                        );
+                      })}
                     </div>
-                    <div className="region-heading block-region-heading">
-                      <span>BLOCK MAP</span>
-                      <small>
-                        {query
-                          ? `${matchingBlocks.filter((block) => block.role !== "header").length} matches`
-                          : `${formatBytes(inspection.blockSize)} / cell`}
-                      </small>
-                    </div>
+                    <PhysicalLegend
+                      mode={colorMode}
+                      semanticReady={semanticReady}
+                      blocks={dataBlocks}
+                      segmentsByBlock={segmentsByBlock}
+                      indexes={inspection.indexes}
+                      segments={inspection.segments}
+                      matches={
+                        query
+                          ? matchingBlocks.filter(
+                              (block) => block.role !== "header",
+                            ).length
+                          : null
+                      }
+                    />
                     <BlockHeatmap
                       blocks={visibleDataBlocks}
                       segmentsByBlock={segmentsByBlock}
@@ -1175,12 +1195,6 @@ export default function App() {
                         </Button>
                       </div>
                     )}
-                    <Legend
-                      mode={colorMode}
-                      semanticReady={semanticReady}
-                      indexes={inspection.indexes}
-                      segments={inspection.segments}
-                    />
                   </div>
                 ) : view === "indexes" ? (
                   <IndexView
@@ -1413,120 +1427,6 @@ export default function App() {
     </div>
   );
 }
-
-const Legend = memo(function Legend({
-  mode,
-  semanticReady,
-  indexes = [],
-  segments = [],
-}: {
-  mode: ColorMode;
-  semanticReady: boolean;
-  indexes?: IndexInspection[];
-  segments?: Segment[];
-}) {
-  if (mode === "fragmentation")
-    return (
-      <div className="legend">
-        <span className="legend-title">
-          UNUSED WITHIN MEASURED DATA / INDEX BLOCKS
-        </span>
-        <span className="gradient-legend" />
-        <span>0%</span>
-        <span>100%</span>
-        <span className="legend-unknown">
-          <i />
-          Unmeasured allocations
-        </span>
-      </div>
-    );
-  if (mode === "utilization")
-    return (
-      <div className="legend">
-        <span className="legend-title">SPACE USED</span>
-        <span className="gradient-legend" />
-        <span>0%</span>
-        <span>100%</span>
-        <span className="legend-item">
-          <i style={{ backgroundColor: roleColors.free }} />
-          Free space
-        </span>
-        <span className="legend-unknown">
-          <i />
-          Unknown
-        </span>
-      </div>
-    );
-  if (mode === "role")
-    return (
-      <div className="legend">
-        <span className="legend-title">STORAGE ROLE</span>
-        {Object.entries(roleColors).map(([role, color]) => (
-          <span className="legend-item" key={role}>
-            <i style={{ backgroundColor: color }} />
-            {role}
-          </span>
-        ))}
-      </div>
-    );
-  if (!semanticReady)
-    return (
-      <div className="legend">
-        <span className="legend-title">{mode.toUpperCase()}</span>
-        <span className="legend-empty">
-          Available after checkpoint metadata is decoded
-        </span>
-      </div>
-    );
-  const categories =
-    mode === "table"
-      ? [
-          ...new Set([
-            ...segments.map((segment) => segment.table),
-            ...indexes.map((index) => index.table),
-          ]),
-        ]
-          .sort((a, b) => a.localeCompare(b))
-          .map((name) => ({ name, color: stableColor(name, tablePalette) }))
-      : mode === "column"
-        ? [
-            ...new Set([
-              ...segments.map(
-                (segment) => `${segment.table}.${segment.column}`,
-              ),
-              ...indexes.map((index) => `${index.table} / ${index.name}`),
-            ]),
-          ]
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => ({ name, color: stableColor(name, tablePalette) }))
-        : [...new Set(segments.map((segment) => segment.compression))]
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => ({
-              name,
-              color: stableColor(name, compressionPalette),
-            }));
-  const title =
-    mode === "table" ? "TABLES" : mode === "column" ? "COLUMNS" : "COMPRESSION";
-  return (
-    <div className="legend">
-      <span className="legend-title">{title}</span>
-      {categories.map(({ name, color }) => (
-        <span className="legend-item" key={name}>
-          <i style={{ backgroundColor: color }} />
-          {name}
-        </span>
-      ))}
-      <span className="legend-item unmapped">
-        <i style={{ backgroundColor: roleColors.unknown }} />
-        Unknown
-      </span>
-      <span className="legend-item">
-        <i style={{ backgroundColor: roleColors.free }} />
-        Free space
-      </span>
-    </div>
-  );
-});
 
 const LogicalGroups = memo(function LogicalGroups({
   rowGroupsInfo,
@@ -1872,12 +1772,8 @@ function BlockDetails({
           style={{ backgroundColor: roleColors[block.role] }}
         />
         <span>{block.role} block</span>
-        <Badge variant={block.role === "free" ? "neutral" : "default"}>
-          {block.role}
-        </Badge>
       </div>
       <div className="detail-card">
-        <span className="detail-card-kicker">BLOCK PROPERTIES</span>
         {onShowFreeList && (
           <Button variant="secondary" size="sm" onClick={onShowFreeList}>
             {block.role === "free"
@@ -1886,14 +1782,29 @@ function BlockDetails({
             <ArrowRight size={12} />
           </Button>
         )}
-        <DetailPair label="Block ID" value={block.id} mono />
         <DetailPair
           label="Byte offset"
           value={formatOffset(block.offset)}
           mono
         />
-        <DetailPair label="Block size" value={formatBytes(block.size)} />
-        <DetailPair label="Bytes used" value={formatBytes(block.usedBytes)} />
+        <DetailPair
+          label="Space used"
+          value={
+            usedPercent == null ? (
+              "Unknown"
+            ) : (
+              <span
+                className="space-used-value"
+                title={`${formatBytes(block.usedBytes, true)} of ${formatBytes(block.size, true)}`}
+              >
+                <span className="space-used-meter" aria-hidden="true">
+                  <i style={{ width: `${usedPercent}%` }} />
+                </span>
+                {formatBytes(block.usedBytes)} · {usedPercent}%
+              </span>
+            )
+          }
+        />
         <DetailPair
           label="Internal free space"
           value={formatBytes(internalFreeBytes(block), true)}
@@ -1901,7 +1812,7 @@ function BlockDetails({
         {block.role === "index" && (
           <>
             <DetailPair
-              label="Free stored-slot holes"
+              label="Free slot holes"
               value={formatBytes(
                 block.usedBytes == null
                   ? null
@@ -1915,7 +1826,7 @@ function BlockDetails({
               )}
             />
             <DetailPair
-              label="Unallocated gaps / tails"
+              label="Unallocated tail"
               value={formatBytes(
                 block.usedBytes == null
                   ? null
@@ -1930,15 +1841,9 @@ function BlockDetails({
             />
           </>
         )}
-        <DetailPair
-          label="Space used"
-          value={usedPercent == null ? "Unknown" : `${usedPercent}%`}
-        />
-        <DetailPair
-          label="Checksum"
-          value={block.checksum ?? "Not available"}
-          mono
-        />
+        {block.checksum != null && (
+          <DetailPair label="Checksum" value={block.checksum} mono />
+        )}
         <DetailPair label="Description" value={block.label || "Unknown"} />
         {block.role === "free" && inspection.freeList && (
           <>
@@ -2092,17 +1997,24 @@ function BlockDetails({
       {(block.indexOwners?.length ?? 0) > 0 && (
         <div className="detail-section">
           <div className="detail-section-heading">
-            <span>Index ownership</span>
-            <span>{block.indexOwners!.length} indexes</span>
+            <span className="heading-with-info">
+              Index ownership
+              <InfoTip label="About index ownership">
+                <p>
+                  Index nodes are not column codec data. Internal free bytes can
+                  include both free slot holes and unallocated block tails;
+                  neither is a whole reusable free block.
+                </p>
+              </InfoTip>
+            </span>
+            <span>
+              {block.indexOwners!.length} index
+              {block.indexOwners!.length === 1 ? "" : "es"}
+            </span>
           </div>
           {block.indexOwners!.map((index) => (
             <DetailPair key={index.id} label={index.table} value={index.name} />
           ))}
-          <p className="section-caption">
-            Index nodes are not column codec data. Internal free bytes can
-            include both free stored-slot holes and unallocated block tails;
-            neither is a whole reusable free block.
-          </p>
         </div>
       )}
       {segments.length > 0 && (
@@ -2147,9 +2059,6 @@ function BlockDetails({
               {linkedBlocks.length} target{linkedBlocks.length === 1 ? "" : "s"}
             </span>
           </div>
-          <p className="section-caption">
-            Block references decoded by inspection.
-          </p>
           <div className="link-list">
             {linkedBlocks.map((target) => (
               <button
