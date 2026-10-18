@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   aggregateByteSize,
   buildRowGroupUnits,
+  buildLogicalTables,
   continuousLayoutCount,
   LARGE_BLOCK_COUNT,
   LARGE_SEGMENT_COUNT,
@@ -149,4 +150,39 @@ test("uses checkpoint row-group coverage instead of nested list element counts",
     end: 122980,
     count: 100,
   });
+});
+
+test("indexes logical cells without losing shared blocks, constants, or multi-segment columns", () => {
+  const segments = [
+    segment({ id: "a1", column: "a", blockId: 7 }),
+    segment({ id: "a2", column: "a", blockId: 8, rowStart: 1000 }),
+    segment({
+      id: "validity",
+      column: "a",
+      columnType: "VALIDITY",
+      blockId: -1,
+      byteSize: 0,
+    }),
+    segment({ id: "b1", table: "other", column: "b", blockId: 7 }),
+  ];
+  const tables = buildLogicalTables(segments, buildRowGroupUnits(segments));
+  expect(tables.map((table) => table.name)).toEqual(["items", "other"]);
+  expect(tables[0].columns).toEqual([{ name: "a", type: "BIGINT" }]);
+  expect(tables[0].rows[0].cells.get("a")?.map((item) => item.id)).toEqual([
+    "a1",
+    "validity",
+    "a2",
+  ]);
+  expect(tables[0].rows[0].blockIds).toEqual(new Set([7, 8]));
+  expect(tables[0].rows[0].segmentIds.has("validity")).toBe(true);
+  expect(tables[1].rows[0].blockIds.has(7)).toBe(true);
+  expect(tables.reduce((count, table) => count + table.segmentCount, 0)).toBe(
+    segments.length,
+  );
+  // A progressively rendered prefix keeps the complete table's columns available.
+  const prefix = buildLogicalTables(
+    segments,
+    buildRowGroupUnits(segments).slice(0, 1),
+  );
+  expect(prefix[0].columns).toEqual(tables[0].columns);
 });

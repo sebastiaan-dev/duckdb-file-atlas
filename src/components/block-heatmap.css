@@ -1,4 +1,5 @@
 .block-heatmap {
+  position: relative;
   width: 100%;
   min-width: 0;
   padding: 9px 0 0;
@@ -247,4 +248,9 @@
     padding-left: 41px;
     font-size: 8px;
   }
+}
+
+.heatmap-tooltip-anchor {
+  position: absolute;
+  pointer-events: none;
 }

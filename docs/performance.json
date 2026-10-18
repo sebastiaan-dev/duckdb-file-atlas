@@ -1,0 +1,310 @@
+{
+  "fixture": {
+    "database": "TPC-H SF4",
+    "blocks": 4279,
+    "segments": 10298,
+    "row_groups": 294
+  },
+  "measurement": "Development build, event capture to next requestAnimationFrame; React Profiler records commits. Same local browser, fixture and viewport.",
+  "baseline_commit": "cd81798",
+  "summary": {
+    "physical": {
+      "baseline_median_frame_ms": 406.6,
+      "optimized_median_frame_ms": 10.0,
+      "baseline_samples": 10,
+      "optimized_samples": 10,
+      "optimized_react_commits": 31
+    },
+    "logical": {
+      "baseline_median_frame_ms": 298.8,
+      "optimized_median_frame_ms": 4.5,
+      "baseline_samples": 8,
+      "optimized_samples": 8,
+      "optimized_react_commits": 0
+    }
+  },
+  "baseline": [
+    {
+      "event": 0,
+      "kind": "click:Block 0, data, offset 0x00003000, 256 KiB",
+      "renderMs": 302.4000039100647,
+      "commits": 2,
+      "frameMs": 422.40000009536743
+    },
+    {
+      "event": 1,
+      "kind": "key:ArrowRight",
+      "renderMs": 282.59999799728394,
+      "commits": 10,
+      "frameMs": 432.5
+    },
+    {
+      "event": 2,
+      "kind": "key:ArrowRight",
+      "renderMs": 294.5999970436096,
+      "commits": 11,
+      "frameMs": 407.19999980926514
+    },
+    {
+      "event": 3,
+      "kind": "key:ArrowRight",
+      "renderMs": 282.8999981880188,
+      "commits": 11,
+      "frameMs": 398.09999990463257
+    },
+    {
+      "event": 4,
+      "kind": "key:ArrowRight",
+      "renderMs": 272.69999742507935,
+      "commits": 10,
+      "frameMs": 417.19999980926514
+    },
+    {
+      "event": 5,
+      "kind": "key:ArrowRight",
+      "renderMs": 282.39999866485596,
+      "commits": 13,
+      "frameMs": 406.09999990463257
+    },
+    {
+      "event": 6,
+      "kind": "key:ArrowRight",
+      "renderMs": 285.2999997138977,
+      "commits": 11,
+      "frameMs": 398.69999980926514
+    },
+    {
+      "event": 7,
+      "kind": "key:ArrowRight",
+      "renderMs": 310.8999996185303,
+      "commits": 12,
+      "frameMs": 462.7000002861023
+    },
+    {
+      "event": 8,
+      "kind": "key:ArrowRight",
+      "renderMs": 285.1000008583069,
+      "commits": 12,
+      "frameMs": 389.2000002861023
+    },
+    {
+      "event": 9,
+      "kind": "key:ArrowRight",
+      "renderMs": 279.4000015258789,
+      "commits": 10,
+      "frameMs": 389.80000019073486
+    },
+    {
+      "event": 10,
+      "kind": "key:ArrowRight",
+      "renderMs": 845.0000057220459,
+      "commits": 26,
+      "frameMs": 429.7000002861023
+    },
+    {
+      "event": 11,
+      "kind": "click:Logical map",
+      "renderMs": 193.19999980926514,
+      "commits": 2,
+      "frameMs": 0.5
+    },
+    {
+      "event": 12,
+      "kind": "key:Tab",
+      "renderMs": 153.39999914169312,
+      "commits": 2,
+      "frameMs": 296.2999997138977
+    },
+    {
+      "event": 13,
+      "kind": "key:Tab",
+      "renderMs": 157.0000023841858,
+      "commits": 2,
+      "frameMs": 301.40000009536743
+    },
+    {
+      "event": 14,
+      "kind": "key:Tab",
+      "renderMs": 299.9999942779541,
+      "commits": 3,
+      "frameMs": 366.09999990463257
+    },
+    {
+      "event": 15,
+      "kind": "key:Tab",
+      "renderMs": 77.39999866485596,
+      "commits": 2,
+      "frameMs": 154
+    },
+    {
+      "event": 16,
+      "kind": "key:Tab",
+      "renderMs": 284.09999990463257,
+      "commits": 3,
+      "frameMs": 359.2000002861023
+    },
+    {
+      "event": 17,
+      "kind": "key:Tab",
+      "renderMs": 224.10000085830688,
+      "commits": 3,
+      "frameMs": 295.59999990463257
+    },
+    {
+      "event": 18,
+      "kind": "key:Tab",
+      "renderMs": 71.79999780654907,
+      "commits": 2,
+      "frameMs": 149.40000009536743
+    },
+    {
+      "event": 19,
+      "kind": "key:Tab",
+      "renderMs": 210.39999914169312,
+      "commits": 2,
+      "frameMs": 367.09999990463257
+    }
+  ],
+  "optimized": [
+    {
+      "event": 0,
+      "kind": "click:Block 0, data, offset 0x00003000, 256 KiB",
+      "renderMs": 21.199999809265137,
+      "commits": 5,
+      "frameMs": 21.399999618530273
+    },
+    {
+      "event": 1,
+      "kind": "key:ArrowRight",
+      "renderMs": 5.400001525878906,
+      "commits": 8,
+      "frameMs": 11.300000190734863
+    },
+    {
+      "event": 2,
+      "kind": "key:ArrowRight",
+      "renderMs": 4.400001049041748,
+      "commits": 2,
+      "frameMs": 9.099999904632568
+    },
+    {
+      "event": 3,
+      "kind": "key:ArrowRight",
+      "renderMs": 4.199999809265137,
+      "commits": 3,
+      "frameMs": 9.5
+    },
+    {
+      "event": 4,
+      "kind": "key:ArrowRight",
+      "renderMs": 4.099999904632568,
+      "commits": 2,
+      "frameMs": 8.299999713897705
+    },
+    {
+      "event": 5,
+      "kind": "key:ArrowRight",
+      "renderMs": 39.10000038146973,
+      "commits": 2,
+      "frameMs": 43.40000009536743
+    },
+    {
+      "event": 6,
+      "kind": "key:ArrowRight",
+      "renderMs": 41.299999713897705,
+      "commits": 2,
+      "frameMs": 45.89999961853027
+    },
+    {
+      "event": 7,
+      "kind": "key:ArrowRight",
+      "renderMs": 8.699999332427979,
+      "commits": 2,
+      "frameMs": 13.200000286102295
+    },
+    {
+      "event": 8,
+      "kind": "key:ArrowRight",
+      "renderMs": 5.300000190734863,
+      "commits": 2,
+      "frameMs": 10.400000095367432
+    },
+    {
+      "event": 9,
+      "kind": "key:ArrowRight",
+      "renderMs": 4.09999942779541,
+      "commits": 2,
+      "frameMs": 8.800000190734863
+    },
+    {
+      "event": 10,
+      "kind": "key:ArrowRight",
+      "renderMs": 153.19999933242798,
+      "commits": 6,
+      "frameMs": 8
+    },
+    {
+      "event": 11,
+      "kind": "click:Logical map",
+      "renderMs": 0,
+      "commits": 1,
+      "frameMs": 0.40000009536743164
+    },
+    {
+      "event": 12,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 12
+    },
+    {
+      "event": 13,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 1.299999713897705
+    },
+    {
+      "event": 14,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 1.5999999046325684
+    },
+    {
+      "event": 15,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 0.3000001907348633
+    },
+    {
+      "event": 16,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 0.3000001907348633
+    },
+    {
+      "event": 17,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 12.200000286102295
+    },
+    {
+      "event": 18,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 11.699999809265137
+    },
+    {
+      "event": 19,
+      "kind": "key:Tab",
+      "renderMs": 0,
+      "commits": 0,
+      "frameMs": 7.400000095367432
+    }
+  ]
+}

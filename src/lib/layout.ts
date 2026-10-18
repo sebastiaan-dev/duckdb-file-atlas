@@ -104,3 +104,89 @@ export function aggregateByteSize(segments: Segment[]): number | null {
   );
   return Number.isSafeInteger(total) ? total : null;
 }
+
+export interface LogicalRowModel {
+  group: RowGroupUnit;
+  cells: Map<string, Segment[]>;
+  blockIds: Set<number>;
+  segmentIds: Set<string>;
+  coverage: ReturnType<typeof rowCoverage>;
+}
+export interface LogicalTableModel {
+  name: string;
+  columns: { name: string; type: string }[];
+  rows: LogicalRowModel[];
+  segmentCount: number;
+}
+
+export interface LogicalLayoutIndex {
+  columns: Map<string, { name: string; type: string }[]>;
+  rows: WeakMap<RowGroupUnit, LogicalRowModel>;
+}
+
+export function createLogicalLayoutIndex(
+  segments: Segment[],
+): LogicalLayoutIndex {
+  const byTable = new Map<string, Map<string, string>>();
+  for (const segment of segments) {
+    let columns = byTable.get(segment.table);
+    if (!columns) byTable.set(segment.table, (columns = new Map()));
+    if (!columns.has(segment.column))
+      columns.set(segment.column, segment.columnType);
+  }
+  return {
+    columns: new Map(
+      [...byTable].map(([table, columns]) => [
+        table,
+        [...columns].map(([name, type]) => ({ name, type })),
+      ]),
+    ),
+    rows: new WeakMap(),
+  };
+}
+
+/** Cache cells per immutable row group, including when a large map appends more groups. */
+export function buildLogicalTables(
+  segments: Segment[],
+  groups: RowGroupUnit[],
+  index = createLogicalLayoutIndex(segments),
+): LogicalTableModel[] {
+  const tables = new Map<string, LogicalTableModel>();
+  for (const group of groups) {
+    let table = tables.get(group.table);
+    if (!table)
+      tables.set(
+        group.table,
+        (table = {
+          name: group.table,
+          columns: index.columns.get(group.table) ?? [],
+          rows: [],
+          segmentCount: 0,
+        }),
+      );
+    let row = index.rows.get(group);
+    if (!row) {
+      const cells = new Map<string, Segment[]>(),
+        blockIds = new Set<number>(),
+        segmentIds = new Set<string>();
+      for (const segment of group.segments) {
+        let cell = cells.get(segment.column);
+        if (!cell) cells.set(segment.column, (cell = []));
+        cell.push(segment);
+        segmentIds.add(segment.id);
+        if (segment.blockId >= 0) blockIds.add(segment.blockId);
+      }
+      row = {
+        group,
+        cells,
+        blockIds,
+        segmentIds,
+        coverage: rowCoverage(group.segments),
+      };
+      index.rows.set(group, row);
+    }
+    table.segmentCount += group.segments.length;
+    table.rows.push(row);
+  }
+  return [...tables.values()].sort((a, b) => a.name.localeCompare(b.name));
+}

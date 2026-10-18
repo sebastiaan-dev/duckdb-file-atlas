@@ -88,3 +88,5 @@ See [the storage-format notes](docs/storage-format.md) for the source references
 ### Continuous layouts
 
 Physical blocks and logical row groups are shown in one continuous layout, without pagination. Maps up to 50,000 blocks (about 12.2 GiB with default block sizes), or up to 50,000 logical segments, render in full. Larger maps append blocks or complete row groups as you approach the bottom; a “Load more” control also supports keyboard navigation. Searching and selecting blocks reveal the relevant part of the continuous map.
+
+The UI keeps hover local to the grid, shares one block tooltip, and caches logical cell and lookup indices. The inspector appears on selection. The map remains continuous; search and view controls stay available while scrolling. See [the measured SF4 comparison](docs/performance.md).

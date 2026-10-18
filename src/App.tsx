@@ -1,5 +1,13 @@
 import { fragmentationSummary, internalFreeBytes } from "@/lib/fragmentation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useDeferredValue,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertCircle,
   ArrowDownRight,
@@ -12,6 +20,7 @@ import {
   ChevronRight,
   CircleHelp,
   Database,
+  Grid2X2,
   FileCode2,
   FileText,
   HardDrive,
@@ -25,21 +34,12 @@ import {
   Moon,
   Sun,
   Plus,
-  Grid2X2,
-  ChevronsUpDown,
   Info,
-  MousePointer2,
-  LockKeyhole,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+
 import { useContinuousLayout } from "@/hooks/use-continuous-layout";
 import { BlockHeatmap } from "@/components/block-heatmap";
 import {
@@ -56,9 +56,11 @@ import { applyManifest } from "@/lib/semantic";
 import {
   aggregateByteSize,
   buildRowGroupUnits,
+  buildLogicalTables,
+  createLogicalLayoutIndex,
+  type LogicalRowModel,
   LARGE_BLOCK_COUNT,
   LARGE_SEGMENT_COUNT,
-  rowCoverage,
   type RowGroupUnit,
 } from "@/lib/layout";
 import type {
@@ -84,10 +86,12 @@ function formatBytes(value: number | null | undefined, precise = false) {
   return `${(value / 1024 ** 3).toFixed(2)} GiB`;
 }
 
+const numberFormatter = new Intl.NumberFormat();
+
 function formatNumber(value: number | null | undefined) {
   return value == null || !Number.isFinite(value)
     ? "Unknown"
-    : new Intl.NumberFormat().format(value);
+    : numberFormatter.format(value);
 }
 
 function shortName(value: string, max = 20) {
@@ -172,6 +176,7 @@ export default function App() {
   const [colorMode, setColorMode] = useState<ColorMode>("role");
   const [density, setDensity] = useState<Density>(0);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
     null,
@@ -180,7 +185,6 @@ export default function App() {
     null,
   );
   const [hoveredBlockId, setHoveredBlockId] = useState<number | null>(null);
-  const [hoveredSegmentId, setHoveredSegmentId] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [byteView, setByteView] = useState<ByteView>(null);
   const [loadingFile, setLoadingFile] = useState(false);
@@ -188,7 +192,6 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const [manifestMessage, setManifestMessage] = useState("");
-  const [notice, setNotice] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const manifestInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -199,17 +202,19 @@ export default function App() {
   const manifestImportRequestRef = useRef(0);
 
   const semanticReady = inspection.capabilities.semantic;
-  const selectedBlock = useMemo(
-    () =>
-      inspection.blocks.find((block) => block.id === selectedBlockId) ?? null,
-    [inspection.blocks, selectedBlockId],
+  const blocksById = useMemo(
+    () => new Map(inspection.blocks.map((block) => [block.id, block])),
+    [inspection.blocks],
   );
-  const selectedSegment = useMemo(
-    () =>
-      inspection.segments.find((segment) => segment.id === selectedSegmentId) ??
-      null,
-    [inspection.segments, selectedSegmentId],
+  const segmentsById = useMemo(
+    () => new Map(inspection.segments.map((segment) => [segment.id, segment])),
+    [inspection.segments],
   );
+  const selectedBlock = blocksById.get(selectedBlockId ?? NaN) ?? null;
+  const selectedSegment =
+    selectedSegmentId == null
+      ? null
+      : (segmentsById.get(selectedSegmentId) ?? null);
   const selectedHeader = useMemo(
     () =>
       inspection.headers.find((header) => header.slot === selectedHeaderSlot) ??
@@ -223,33 +228,43 @@ export default function App() {
       ? selectedSegment.blockId
       : null);
   const linkedBlockIds = useMemo(
+    () => new Set(blocksById.get(effectiveHoverBlock ?? NaN)?.links ?? []),
+    [blocksById, effectiveHoverBlock],
+  );
+  const segmentSearch = useMemo(
     () =>
-      new Set(
-        inspection.blocks.find((block) => block.id === effectiveHoverBlock)
-          ?.links ?? [],
-      ),
-    [inspection.blocks, effectiveHoverBlock],
+      inspection.segments.map((segment) => ({
+        segment,
+        text: `${segment.table} ${segment.column} ${segment.columnType} ${segment.compression} ${segment.id} ${segment.rowGroup}`.toLocaleLowerCase(),
+      })),
+    [inspection.segments],
+  );
+  const blockSearch = useMemo(
+    () =>
+      inspection.blocks.map((block) => ({
+        block,
+        text: `${block.id} ${block.label} ${block.role}`.toLocaleLowerCase(),
+      })),
+    [inspection.blocks],
   );
   const matchingBlocks = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase();
+    const term = deferredQuery.trim().toLocaleLowerCase();
     if (!term) return inspection.blocks;
     const matchingSegmentBlocks = new Set(
-      inspection.segments
-        .filter((segment) =>
-          `${segment.table} ${segment.column} ${segment.columnType} ${segment.compression} ${segment.id}`
-            .toLocaleLowerCase()
-            .includes(term),
+      segmentSearch
+        .filter(
+          (entry) => entry.segment.blockId >= 0 && entry.text.includes(term),
         )
-        .map((segment) => segment.blockId)
-        .filter((id) => id >= 0),
+        .map((entry) => entry.segment.blockId),
     );
-    return inspection.blocks.filter(
-      (block) =>
-        `${block.id} ${block.label} ${block.role}`
-          .toLocaleLowerCase()
-          .includes(term) || matchingSegmentBlocks.has(block.id),
-    );
-  }, [inspection.blocks, inspection.segments, query]);
+    return blockSearch
+      .filter(
+        (entry) =>
+          entry.text.includes(term) ||
+          matchingSegmentBlocks.has(entry.block.id),
+      )
+      .map((entry) => entry.block);
+  }, [inspection.blocks, segmentSearch, blockSearch, deferredQuery]);
   const matchingBlockIds = useMemo(
     () => new Set(matchingBlocks.map((block) => block.id)),
     [matchingBlocks],
@@ -265,14 +280,13 @@ export default function App() {
     return byBlock;
   }, [inspection.segments]);
   const filteredSegments = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase();
-    if (!term) return inspection.segments;
-    return inspection.segments.filter((segment) =>
-      `${segment.table} ${segment.column} ${segment.columnType} ${segment.compression} ${segment.id} ${segment.rowGroup}`
-        .toLocaleLowerCase()
-        .includes(term),
-    );
-  }, [inspection.segments, query]);
+    const term = deferredQuery.trim().toLocaleLowerCase();
+    return term
+      ? segmentSearch
+          .filter((entry) => entry.text.includes(term))
+          .map((entry) => entry.segment)
+      : inspection.segments;
+  }, [inspection.segments, segmentSearch, deferredQuery]);
   const dataBlocks = useMemo(
     () =>
       inspection.blocks
@@ -281,14 +295,15 @@ export default function App() {
         .sort((a, b) => a.offset - b.offset),
     [inspection.blocks],
   );
-  const headerBlocks = inspection.blocks.filter(
-    (block) => block.role === "header",
+  const headerBlocks = useMemo(
+    () => inspection.blocks.filter((block) => block.role === "header"),
+    [inspection.blocks],
   );
   const logicalUnits = useMemo(
     () => buildRowGroupUnits(filteredSegments),
     [filteredSegments],
   );
-  const firstMatchingBlockId = query.trim()
+  const firstMatchingBlockId = deferredQuery.trim()
     ? matchingBlocks.find((block) => block.role !== "header")?.id
     : undefined;
   const revealBlockIndex = Math.max(
@@ -305,9 +320,13 @@ export default function App() {
     logicalUnits,
     filteredSegments.length > LARGE_SEGMENT_COUNT,
     64,
-    logicalUnits.findIndex((group) =>
-      group.segments.some((segment) => segment.id === selectedSegmentId),
-    ),
+    selectedSegment
+      ? logicalUnits.findIndex(
+          (group) =>
+            group.table === selectedSegment.table &&
+            group.rowGroup === selectedSegment.rowGroup,
+        )
+      : -1,
   );
   const visibleDataBlocks = useMemo(
     () => dataBlocks.slice(0, physicalLayout.visibleCount),
@@ -317,9 +336,13 @@ export default function App() {
     () => logicalUnits.slice(0, logicalLayout.visibleCount),
     [logicalUnits, logicalLayout.visibleCount],
   );
-  const maxLogicalSegmentBytes = inspection.segments.reduce(
-    (maximum, segment) => Math.max(maximum, segment.byteSize ?? 0),
-    0,
+  const maxLogicalSegmentBytes = useMemo(
+    () =>
+      inspection.segments.reduce(
+        (maximum, segment) => Math.max(maximum, segment.byteSize ?? 0),
+        0,
+      ),
+    [inspection.segments],
   );
 
   const clearSelection = useCallback(() => {
@@ -342,7 +365,6 @@ export default function App() {
       setLoadingFile(true);
       setError("");
       setManifestMessage("");
-      setNotice("");
       try {
         const result = await inspectDatabase(file, controller.signal);
         if (requestId !== fileLoadRequestRef.current) return;
@@ -353,11 +375,6 @@ export default function App() {
         setQuery("");
 
         clearSelection();
-        setNotice(
-          result.native
-            ? `Read ${result.native.tables} tables and ${result.native.rowGroups} row groups directly from ${file.name}`
-            : `Loaded ${file.name} locally`,
-        );
       } catch (caught) {
         if (requestId === fileLoadRequestRef.current)
           setError(
@@ -482,14 +499,6 @@ export default function App() {
   }, [selectedBlock, selectedSegment, loadBlockBytes]);
 
   useEffect(() => {
-    if (view !== "physical" || selectedBlockId == null) return;
-    const tile = document.querySelector<HTMLButtonElement>(
-      `[data-block-id="${selectedBlockId}"]`,
-    );
-    tile?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [view, selectedBlockId]);
-
-  useEffect(() => {
     if (view !== "physical" || firstMatchingBlockId == null) return;
     document
       .querySelector<HTMLButtonElement>(
@@ -541,16 +550,21 @@ export default function App() {
     free: "Free space",
     unknown: "Unknown",
   };
-  const roleSummary = (Object.keys(roleColors) as StorageRole[]).map(
-    (role) => ({
-      role,
-      label: roleLabels[role],
-      bytes: inspection.blocks
-        .filter((block) => block.role === role)
-        .reduce((sum, block) => sum + block.size, 0),
-    }),
+  const roleSummary = useMemo(
+    () =>
+      (Object.keys(roleColors) as StorageRole[]).map((role) => ({
+        role,
+        label: roleLabels[role],
+        bytes: inspection.blocks
+          .filter((block) => block.role === role)
+          .reduce((sum, block) => sum + block.size, 0),
+      })),
+    [inspection.blocks],
   );
-  const fragmentation = fragmentationSummary(inspection);
+  const fragmentation = useMemo(
+    () => fragmentationSummary(inspection),
+    [inspection],
+  );
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
@@ -605,12 +619,6 @@ export default function App() {
           <span className="brand-divider" />
           <span className="brand-subtitle">DuckDB</span>
         </div>
-        <div className="topbar-center">
-          <span className="privacy-mark">
-            <span />
-            Local file explorer
-          </span>
-        </div>
         <div className="topbar-actions">
           <button
             className="theme-toggle"
@@ -644,50 +652,7 @@ export default function App() {
       </header>
       <div className="app-layout">
         <aside className="sidebar">
-          <span className="eyebrow">WORKSPACE</span>
-          <button
-            className="file-card"
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Open another database"
-          >
-            <span className="file-card-icon">
-              <Database size={18} strokeWidth={1.5} />
-            </span>
-            <span className="file-card-info">
-              <strong title={inspection.name}>
-                {shortName(inspection.name, 23)}
-              </strong>
-              <small>
-                {formatBytes(inspection.fileSize)} <i />{" "}
-                {inspection.source === "demo" ? "Example file" : "Local file"}
-              </small>
-            </span>
-            <ChevronsUpDown size={14} />
-          </button>
-          <nav className="side-nav" aria-label="Explorer views">
-            <button
-              type="button"
-              className={view === "physical" ? "active" : ""}
-              onClick={() => setView("physical")}
-            >
-              <Grid2X2 size={16} />
-              Physical layout<span>{formatNumber(dataBlocks.length)}</span>
-            </button>
-            <button
-              type="button"
-              className={view === "logical" ? "active" : ""}
-              onClick={() => {
-                setView("logical");
-                if (colorMode === "fragmentation") setColorMode("utilization");
-                if (colorMode === "role") setColorMode("table");
-              }}
-            >
-              <Layers3 size={16} />
-              Logical data{semanticReady && <span>{tables.length}</span>}
-            </button>
-          </nav>
-          <div className="side-section side-section-divider">
+          <div className="side-section">
             <div className="eyebrow-row">
               <span className="eyebrow">TABLES</span>
               <span className="side-count">{tables.length}</span>
@@ -749,27 +714,14 @@ export default function App() {
               ))}
             </div>
           </div>
-          <div className="sidebar-footer">
-            <span className="local-dot" />
-            <div>
-              <strong>Read locally. Explore freely.</strong>
-              <small>Your database stays on your device.</small>
-            </div>
-          </div>
         </aside>
         <main className="main-area">
           <div className="workspace-heading">
             <div>
-              <div className="breadcrumb">
-                <span>Workspace</span>
-                <ChevronRight size={12} />
-                <span>{inspection.name}</span>
-              </div>
-              <h1>Storage overview</h1>
-              <p>A closer look at how your database takes shape.</p>
+              <h1>{inspection.name}</h1>
             </div>
             <div className="heading-actions">
-              {!inspection.native && (
+              {inspection.source === "file" && !inspection.native && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -780,55 +732,23 @@ export default function App() {
                   Import metadata
                 </Button>
               )}
+              {inspection.source === "demo" && (
+                <Badge variant="neutral">Example</Badge>
+              )}
+              {inspection.source === "file" &&
+                !inspection.native &&
+                semanticReady && (
+                  <Badge variant="neutral">Imported metadata</Badge>
+                )}
               {inspection.native && (
                 <Badge variant="purple">
                   <Check size={12} />
                   Decoded from file
                 </Badge>
               )}
-              <TooltipProvider delayDuration={250}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      className="help-link"
-                      type="button"
-                      onClick={() =>
-                        setNotice(
-                          "Checkpoint metadata is traversed locally to read tables, column segments, recorded byte sizes, and statistics. Gaps are measured only in completely mapped data blocks.",
-                        )
-                      }
-                      aria-label="About the file map"
-                    >
-                      <CircleHelp size={17} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Explore checkpoint metadata, physical allocations, and
-                    measured internal free space.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </div>
           </div>
           <section className="overview-card" aria-label="Database overview">
-            <div className="overview-card-top">
-              <span className="overview-file">
-                <Database size={15} />
-                <span>{inspection.name}</span>
-              </span>
-              <span
-                className={`source-badge ${inspection.source === "demo" ? "sample" : ""}`}
-              >
-                {inspection.source === "demo" ? (
-                  <Sparkles size={12} />
-                ) : (
-                  <Check size={12} />
-                )}
-                {inspection.source === "demo"
-                  ? "Illustrative example"
-                  : "Local database"}
-              </span>
-            </div>
             <div className="overview-metrics">
               <div className="hero-metric">
                 <span className="eyebrow">FILE FOOTPRINT</span>
@@ -849,7 +769,7 @@ export default function App() {
                 </strong>
                 <small>
                   {semanticReady
-                    ? `${tables.length} tables connected`
+                    ? `${tables.length} tables`
                     : "Native decoding unavailable"}
                 </small>
               </div>
@@ -898,7 +818,7 @@ export default function App() {
                 ))}
             </div>
           </section>
-          {(error || notice || manifestMessage) && (
+          {(error || manifestMessage) && (
             <div className="message-stack">
               {error && (
                 <div className="message error-message" role="alert">
@@ -913,16 +833,15 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {!error && (manifestMessage || notice) && (
+              {!error && manifestMessage && (
                 <div className="message notice-message" role="status">
                   <CircleHelp size={15} />
-                  <span>{manifestMessage || notice}</span>
+                  <span>{manifestMessage}</span>
                   <button
                     type="button"
                     aria-label="Dismiss message"
                     onClick={() => {
                       setManifestMessage("");
-                      setNotice("");
                     }}
                   >
                     <X size={14} />
@@ -1025,7 +944,10 @@ export default function App() {
               </label>
             </div>
           </div>
-          <div className="content-grid">
+          <div
+            className={`content-grid${selectedBlock || selectedSegment || selectedHeader ? " has-selection" : ""}`}
+            aria-busy={query !== deferredQuery}
+          >
             <section className="map-column" aria-label="File map">
               <div className="map-card">
                 <div className="map-card-header">
@@ -1045,11 +967,6 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <p>
-                      {view === "physical"
-                        ? "Physical address order. Every cell is one allocation."
-                        : "Follow each segment back to its physical block."}
-                    </p>
                   </div>
                   {view === "physical" && (
                     <div className="zoom-control" aria-label="Map tile density">
@@ -1134,7 +1051,6 @@ export default function App() {
                       hoveredBlockId={effectiveHoverBlock}
                       matchingBlockIds={query ? matchingBlockIds : null}
                       onSelect={chooseBlock}
-                      onHover={setHoveredBlockId}
                       density={density}
                       linkedBlockIds={linkedBlockIds}
                     />
@@ -1165,23 +1081,6 @@ export default function App() {
                   </div>
                 ) : semanticReady ? (
                   <div className="logical-body">
-                    <div className="logical-intro">
-                      <div>
-                        <span className="logical-eyebrow">
-                          {inspection.native
-                            ? "CHECKPOINT METADATA"
-                            : "SEMANTIC OVERLAY"}
-                        </span>
-                        <p>
-                          Color and selection connect each logical segment to
-                          its physical block.
-                        </p>
-                      </div>
-                      <Badge variant="purple">
-                        <Layers3 size={12} />
-                        {inspection.segments.length} mapped segments
-                      </Badge>
-                    </div>
                     {filteredSegments.length === 0 ? (
                       <div className="empty-search">
                         <Search size={16} />
@@ -1197,13 +1096,10 @@ export default function App() {
                           segments={filteredSegments}
                           groups={visibleLogicalUnits}
                           selectedId={selectedSegmentId}
-                          hoveredId={hoveredSegmentId}
                           selectedBlockId={selectedBlockId}
                           mode={colorMode}
                           maxSegmentBytes={maxLogicalSegmentBytes}
                           onPick={chooseSegment}
-                          onEnter={(segment) => setHoveredSegmentId(segment.id)}
-                          onLeave={() => setHoveredSegmentId(null)}
                         />
                         {logicalLayout.hasMore && (
                           <div
@@ -1268,126 +1164,88 @@ export default function App() {
                     <div>
                       <Upload size={28} />
                       <strong>Drop a database to explore</strong>
-                      <span>Read locally. Nothing is uploaded.</span>
                     </div>
                   </div>
                 )}
               </div>
-              <div className="map-caption">
-                <span>
-                  <MousePointer2 size={12} />
-                  Hover to inspect · click to select
-                </span>
-                <span>
-                  {inspection.source === "demo"
-                    ? "ILLUSTRATIVE DATASET"
-                    : "LOCAL FILE"}
-                </span>
-              </div>
             </section>
-            <aside className="details-panel" aria-label="Selection details">
-              <div className="details-header">
-                <div>
-                  <span className="eyebrow">INSPECTOR</span>
-                  <h2>
-                    {selectedHeader
-                      ? `Checkpoint ${selectedHeader.slot}`
-                      : selectedSegment
-                        ? selectedSegment.column
-                        : selectedBlock
-                          ? `Block ${String(selectedBlock.id).padStart(4, "0")}`
-                          : "Look inside a block"}
-                  </h2>
+            {(selectedBlock || selectedSegment || selectedHeader) && (
+              <aside className="details-panel" aria-label="Selection details">
+                <div className="details-header">
+                  <div>
+                    <h2>
+                      {selectedHeader
+                        ? `Checkpoint ${selectedHeader.slot}`
+                        : selectedSegment
+                          ? selectedSegment.column
+                          : selectedBlock
+                            ? `Block ${String(selectedBlock.id).padStart(4, "0")}`
+                            : "Inspector"}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="details-close"
+                    aria-label="Clear selection"
+                    disabled={
+                      !selectedBlock && !selectedSegment && !selectedHeader
+                    }
+                    onClick={clearSelection}
+                  >
+                    <X size={15} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="details-close"
-                  aria-label="Clear selection"
-                  disabled={
-                    !selectedBlock && !selectedSegment && !selectedHeader
-                  }
-                  onClick={clearSelection}
-                >
-                  <X size={15} />
-                </button>
-              </div>
-              {selectedHeader ? (
-                <CheckpointDetails
-                  checkpoint={selectedHeader}
-                  source={inspection.source}
-                  onInspectBytes={() => {
-                    const block = headerBlocks.find(
-                      (item) =>
-                        item.id === (selectedHeader.slot === 1 ? -2 : -1),
-                    );
-                    if (block) chooseBlock(block);
-                  }}
-                />
-              ) : selectedSegment ? (
-                <SegmentDetails
-                  segment={selectedSegment}
-                  inspection={inspection}
-                  block={selectedBlock}
-                  onBlockClick={chooseBlock}
-                />
-              ) : selectedBlock ? (
-                <BlockDetails
-                  block={selectedBlock}
-                  inspection={inspection}
-                  segments={segmentsByBlock.get(selectedBlock.id) ?? []}
-                  byteView={
-                    byteView?.blockId === selectedBlock.id ? byteView : null
-                  }
-                  loadingBytes={loadingBytes}
-                  onSegmentClick={chooseSegment}
-                  onBlockClick={(id) => {
-                    const block = inspection.blocks.find(
-                      (item) => item.id === id,
-                    );
-                    if (block) chooseBlock(block);
-                  }}
-                  onBytePage={(offset) =>
-                    void loadBlockBytes(selectedBlock, offset)
-                  }
-                />
-              ) : (
-                <InspectorWelcome
-                  semanticReady={semanticReady}
-                  source={inspection.source}
-                />
-              )}
-              <div className="inspector-footnote">
-                <LockKeyhole size={12} />
-                <span>
-                  {inspection.source === "demo"
-                    ? "Example data. Open a file to inspect real bytes."
-                    : "Read-only inspection · your original file is unchanged."}
-                </span>
-              </div>
-            </aside>
+                {selectedHeader ? (
+                  <CheckpointDetails
+                    checkpoint={selectedHeader}
+                    source={inspection.source}
+                    onInspectBytes={() => {
+                      const block = headerBlocks.find(
+                        (item) =>
+                          item.id === (selectedHeader.slot === 1 ? -2 : -1),
+                      );
+                      if (block) chooseBlock(block);
+                    }}
+                  />
+                ) : selectedSegment ? (
+                  <SegmentDetails
+                    segment={selectedSegment}
+                    inspection={inspection}
+                    block={selectedBlock}
+                    blocksById={blocksById}
+                    onBlockClick={chooseBlock}
+                  />
+                ) : selectedBlock ? (
+                  <BlockDetails
+                    block={selectedBlock}
+                    inspection={inspection}
+                    segments={segmentsByBlock.get(selectedBlock.id) ?? []}
+                    segmentsById={segmentsById}
+                    blocksById={blocksById}
+                    byteView={
+                      byteView?.blockId === selectedBlock.id ? byteView : null
+                    }
+                    loadingBytes={loadingBytes}
+                    onSegmentClick={chooseSegment}
+                    onBlockClick={(id) => {
+                      const block = blocksById.get(id);
+                      if (block) chooseBlock(block);
+                    }}
+                    onBytePage={(offset) =>
+                      void loadBlockBytes(selectedBlock, offset)
+                    }
+                  />
+                ) : null}
+              </aside>
+            )}
           </div>
         </main>
       </div>
-      <footer className="app-statusbar">
-        <span>
-          <span className="local-dot" />
-          LOCAL FILE INSPECTION
-        </span>
-        <span>
-          DUCKDB STORAGE V{inspection.storageVersion}
-          <i />
-          {formatNumber(dataBlocks.length)} BLOCKS
-        </span>
-        <span className="statusbar-private">
-          <LockKeyhole size={11} />
-          PRIVATE BY DESIGN
-        </span>
-      </footer>
     </div>
   );
 }
 
-function Legend({
+const Legend = memo(function Legend({
   mode,
   semanticReady,
   segments = [],
@@ -1506,141 +1364,115 @@ function Legend({
       )}
     </div>
   );
-}
+});
 
-function LogicalGroups({
+const LogicalGroups = memo(function LogicalGroups({
   segments,
   groups,
   selectedId,
-  hoveredId,
   selectedBlockId,
   mode,
   maxSegmentBytes,
   onPick,
-  onEnter,
-  onLeave,
 }: {
   segments: Segment[];
   groups: RowGroupUnit[];
   selectedId: string | null;
-  hoveredId: string | null;
   selectedBlockId: number | null;
   mode: ColorMode;
   maxSegmentBytes: number;
   onPick: (segment: Segment) => void;
-  onEnter: (segment: Segment) => void;
-  onLeave: () => void;
 }) {
-  const tables = [...new Set(groups.map((group) => group.table))].sort((a, b) =>
-    a.localeCompare(b),
+  const index = useMemo(() => createLogicalLayoutIndex(segments), [segments]);
+  const tables = useMemo(
+    () => buildLogicalTables(segments, groups, index),
+    [segments, groups, index],
   );
   return (
     <div className="logical-groups">
-      {tables.map((table) => {
-        const tableSegments = segments.filter(
-          (segment) => segment.table === table,
-        );
-        const tableGroups = groups.filter((group) => group.table === table);
-        const columns = [
-          ...new Set(tableSegments.map((segment) => segment.column)),
-        ];
-        return (
-          <section className="table-group" key={table}>
-            <div className="table-group-heading">
-              <div className="table-group-name">
-                <span className="table-icon">
-                  <Table2 size={15} />
+      {tables.map((table) => (
+        <section className="table-group" key={table.name}>
+          <div className="table-group-heading">
+            <div className="table-group-name">
+              <span className="table-icon">
+                <Table2 size={15} />
+              </span>
+              <div>
+                <strong>{table.name}</strong>
+                <span>
+                  {table.columns.length} columns · {table.rows.length} row
+                  groups
                 </span>
-                <div>
-                  <strong>{table}</strong>
-                  <span>
-                    {columns.length} columns · {tableGroups.length} row groups
-                  </span>
+              </div>
+            </div>
+            <Badge variant="neutral">{table.segmentCount} segments</Badge>
+          </div>
+          <div className="logical-table-wrap">
+            <div
+              className="logical-table"
+              style={
+                {
+                  "--column-count": table.columns.length,
+                } as React.CSSProperties
+              }
+            >
+              <div className="logical-cell logical-axis">ROW GROUP</div>
+              {table.columns.map((column) => (
+                <div
+                  className="logical-cell logical-column-head"
+                  key={column.name}
+                >
+                  <strong>{column.name}</strong>
+                  <span>{shortName(column.type, 18)}</span>
                 </div>
-              </div>
-              <Badge variant="neutral">
-                {tableGroups.reduce(
-                  (count, group) => count + group.segments.length,
-                  0,
-                )}{" "}
-                segments
-              </Badge>
+              ))}
+              {table.rows.map((row) => (
+                <LogicalRow
+                  key={row.group.rowGroup}
+                  model={row}
+                  columns={table.columns}
+                  selectedId={
+                    selectedId != null && row.segmentIds.has(selectedId)
+                      ? selectedId
+                      : null
+                  }
+                  selectedBlockId={
+                    selectedBlockId != null && row.blockIds.has(selectedBlockId)
+                      ? selectedBlockId
+                      : null
+                  }
+                  mode={mode}
+                  maxSegmentBytes={maxSegmentBytes}
+                  onPick={onPick}
+                />
+              ))}
             </div>
-            <div className="logical-table-wrap">
-              <div
-                className="logical-table"
-                style={
-                  { "--column-count": columns.length } as React.CSSProperties
-                }
-              >
-                <div className="logical-cell logical-axis">ROW GROUP</div>
-                {columns.map((column) => (
-                  <div
-                    className="logical-cell logical-column-head"
-                    key={column}
-                  >
-                    <strong>{column}</strong>
-                    <span>
-                      {shortName(
-                        tableSegments.find(
-                          (segment) => segment.column === column,
-                        )?.columnType ?? "Unknown",
-                        18,
-                      )}
-                    </span>
-                  </div>
-                ))}
-                {tableGroups.map((group) => (
-                  <LogicalRow
-                    key={group.rowGroup}
-                    group={group.rowGroup}
-                    columns={columns}
-                    segments={group.segments}
-                    selectedId={selectedId}
-                    hoveredId={hoveredId}
-                    selectedBlockId={selectedBlockId}
-                    mode={mode}
-                    maxSegmentBytes={maxSegmentBytes}
-                    onPick={onPick}
-                    onEnter={onEnter}
-                    onLeave={onLeave}
-                  />
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-      })}
+          </div>
+        </section>
+      ))}
     </div>
   );
-}
+});
 
-function LogicalRow({
-  group,
+const LogicalRow = memo(function LogicalRow({
+  model,
   columns,
-  segments,
   selectedId,
-  hoveredId,
   selectedBlockId,
   mode,
   maxSegmentBytes,
   onPick,
-  onEnter,
-  onLeave,
 }: {
-  group: number;
-  columns: string[];
-  segments: Segment[];
+  model: LogicalRowModel;
+  columns: { name: string; type: string }[];
   selectedId: string | null;
-  hoveredId: string | null;
   selectedBlockId: number | null;
   mode: ColorMode;
   maxSegmentBytes: number;
   onPick: (segment: Segment) => void;
-  onEnter: (segment: Segment) => void;
-  onLeave: () => void;
 }) {
-  const coverage = rowCoverage(segments);
+  const { coverage } = model;
+  const group = model.group.rowGroup;
   return (
     <>
       <div className="logical-cell row-label">
@@ -1649,8 +1481,8 @@ function LogicalRow({
           {coverage ? `${formatNumber(coverage.count)} rows` : "Unknown rows"}
         </small>
       </div>
-      {columns.map((column) => {
-        const cellSegments = segments.filter((item) => item.column === column);
+      {columns.map(({ name: column }) => {
+        const cellSegments = model.cells.get(column) ?? [];
         if (cellSegments.length === 0)
           return (
             <div
@@ -1675,7 +1507,6 @@ function LogicalRow({
               const selected =
                 segment.id === selectedId ||
                 segment.blockId === selectedBlockId;
-              const hovered = segment.id === hoveredId;
               const color =
                 mode === "compression"
                   ? stableColor(segment.compression, compressionPalette)
@@ -1690,14 +1521,10 @@ function LogicalRow({
               return (
                 <button
                   type="button"
-                  className={`segment-choice ${selected ? "selected" : ""} ${hovered ? "hovered" : ""}`}
+                  className={`segment-choice ${selected ? "selected" : ""} `}
                   key={segment.id}
                   style={{ "--block-color": color } as React.CSSProperties}
                   onClick={() => onPick(segment)}
-                  onMouseEnter={() => onEnter(segment)}
-                  onMouseLeave={onLeave}
-                  onFocus={() => onEnter(segment)}
-                  onBlur={onLeave}
                   aria-pressed={selected}
                   aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${formatBytes(segment.byteSize)}, block ${segment.blockId}`}
                   title={`${segment.column} · ${segment.compression} · block ${segment.blockId}`}
@@ -1719,7 +1546,7 @@ function LogicalRow({
       })}
     </>
   );
-}
+});
 
 function CheckpointDetails({
   checkpoint,
@@ -1789,14 +1616,6 @@ function CheckpointDetails({
         Inspect raw header page
         <ArrowRight size={13} />
       </button>
-      <div className="inspector-note">
-        <AlertCircle size={14} />
-        <span>
-          {source === "demo"
-            ? "These checkpoint values are illustrative sample data, not decoded from a database file."
-            : "These are checkpoint header values decoded by the local file inspection."}
-        </span>
-      </div>
     </div>
   );
 }
@@ -1804,6 +1623,8 @@ function CheckpointDetails({
 function BlockDetails({
   block,
   inspection,
+  segmentsById,
+  blocksById,
   segments,
   byteView,
   loadingBytes,
@@ -1813,6 +1634,8 @@ function BlockDetails({
 }: {
   block: FileBlock;
   inspection: FileInspection;
+  segmentsById: Map<string, Segment>;
+  blocksById: Map<number, FileBlock>;
   segments: Segment[];
   byteView: ByteView;
   loadingBytes: boolean;
@@ -1823,9 +1646,9 @@ function BlockDetails({
   const usedPercent =
     block.usedBytes == null || block.size <= 0
       ? null
-      : Math.round((block.usedBytes / block.size) * 100);
+      : Number(((block.usedBytes / block.size) * 100).toFixed(1));
   const linkedBlocks = block.links
-    .map((id) => inspection.blocks.find((candidate) => candidate.id === id))
+    .map((id) => blocksById.get(id))
     .filter((candidate): candidate is FileBlock => Boolean(candidate));
   const orderedRanges = [...block.ranges].sort(
     (a, b) => a.offset - b.offset || a.size - b.size,
@@ -1892,9 +1715,7 @@ function BlockDetails({
                   Math.min(100 - left, rawWidth - Math.max(0, -rawLeft)),
                 );
                 const segment = range.segmentId
-                  ? inspection.segments.find(
-                      (candidate) => candidate.id === range.segmentId,
-                    )
+                  ? segmentsById.get(range.segmentId)
                   : undefined;
                 return (
                   <button
@@ -1915,9 +1736,7 @@ function BlockDetails({
             <div className="range-list">
               {orderedRanges.map((range) => {
                 const segment = range.segmentId
-                  ? inspection.segments.find(
-                      (candidate) => candidate.id === range.segmentId,
-                    )
+                  ? segmentsById.get(range.segmentId)
                   : undefined;
                 return (
                   <button
@@ -2116,17 +1935,19 @@ function HexPreview({ offset, bytes }: { offset: number; bytes: Uint8Array }) {
 function SegmentDetails({
   segment,
   inspection,
+  blocksById,
   block,
   onBlockClick,
 }: {
   segment: Segment;
   inspection: FileInspection;
+  blocksById: Map<number, FileBlock>;
   block: FileBlock | null;
   onBlockClick: (block: FileBlock) => void;
 }) {
   const linked =
     block?.links
-      .map((id) => inspection.blocks.find((candidate) => candidate.id === id))
+      .map((id) => blocksById.get(id))
       .filter((candidate): candidate is FileBlock => Boolean(candidate)) ?? [];
   return (
     <div className="detail-content">
@@ -2226,66 +2047,12 @@ function SegmentDetails({
         <FileCode2 size={14} />
         <span>
           {inspection.source === "demo"
-            ? "These semantic values are illustrative sample data. Import a map to connect a real database file."
+            ? "Example data."
             : inspection.native
-              ? "Read directly from the checkpoint. String zonemaps may be bounded prefixes; null counts are shown only when recorded or provable."
+              ? "String zonemaps may contain truncated bounds. Mixed null counts are not always recorded."
               : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
         </span>
       </div>
-    </div>
-  );
-}
-
-function InspectorWelcome({
-  semanticReady,
-  source,
-}: {
-  semanticReady: boolean;
-  source: "demo" | "file";
-}) {
-  return (
-    <div className="inspector-welcome">
-      <div className="inspect-orbit">
-        <span />
-        <Blocks size={23} />
-        <i />
-        <i />
-      </div>
-      <h3>Inspect a block or segment</h3>
-      <p>
-        Select any tile to see its offset, role, byte ranges, and known
-        references.
-      </p>
-      <div className="welcome-divider" />
-      <div className="shortcut-tip">
-        <span className="shortcut-icon">
-          <Search size={14} />
-        </span>
-        <span>
-          <strong>Search the map</strong>
-          <small>Find block IDs, tables, and columns.</small>
-        </span>
-      </div>
-      {!semanticReady && (
-        <div className="shortcut-tip">
-          <span className="shortcut-icon purple">
-            <Layers3 size={14} />
-          </span>
-          <span>
-            <strong>Connect logical data</strong>
-            <small>
-              A sidecar can provide ownership when native decoding is
-              unavailable.
-            </small>
-          </span>
-        </div>
-      )}
-      {source === "demo" && (
-        <div className="inspector-demo-tip">
-          <Sparkles size={13} />
-          This sample is illustrative.
-        </div>
-      )}
     </div>
   );
 }
