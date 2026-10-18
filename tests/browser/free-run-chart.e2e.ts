@@ -28,12 +28,21 @@ async function barWidths(page: Page) {
     );
 }
 
-test("overview uses continuous proportional bars in file order, with a length axis and no table or zoom chrome", async ({
+test("overview positions runs on the file axis and offers a fixed-scale size comparison", async ({
   page,
 }) => {
   await openRuns(page);
   const overview = page.locator(".free-run-overview");
-  await expect(overview).toHaveAttribute("data-scale-max", "12");
+  await expect(overview).toHaveAttribute("data-mode", "position");
+  await expect(overview).toHaveAttribute("data-scale-max", "66");
+  await expect(overview.getByText("Block ID · full file")).toBeVisible();
+  const starts = await overview
+    .locator(".free-run-overview-bar")
+    .evaluateAll((bars) =>
+      bars.map((bar) => parseFloat((bar as HTMLElement).style.left)),
+    );
+  for (const [i, id] of [1, 20, 40, 60].entries())
+    expect(starts[i]).toBeCloseTo((id / 66) * 100, 4);
   const bars = page.locator(".free-run-overview-target");
   await expect(bars).toHaveCount(4);
   expect(
@@ -46,11 +55,13 @@ test("overview uses continuous proportional bars in file order, with a length ax
   expect(widths[2] / widths[0]).toBeCloseTo(1 / 12, 2);
   expect(widths[3] / widths[0]).toBeCloseTo(0.5, 2);
   await expect(
-    overview.locator("svg, [role=table], [role=row], .free-run-values"),
+    overview.locator("[role=table], [role=row], .free-run-values"),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Zoom in free runs" }),
   ).toHaveCount(0);
+  await page.getByRole("button", { name: "Size", exact: true }).click();
+  await expect(overview).toHaveAttribute("data-scale-max", "12");
   await expect(overview.getByText("Run length (blocks)")).toBeVisible();
   await expect(overview.locator(".free-run-overview-count")).toHaveText([
     "12",
@@ -71,7 +82,7 @@ test("provenance filtering retains the full-file scale rather than stretching th
   await expect(page.locator(".free-run-overview-target")).toHaveCount(1);
   await expect(page.locator(".free-run-overview")).toHaveAttribute(
     "data-scale-max",
-    "12",
+    "66",
   );
   const after = await barWidths(page);
   expect(after[0]).toBeCloseTo(before[3], 1);

@@ -1,3 +1,4 @@
+import { InfoTip } from "@/components/detail-tooltip";
 import { FreeRunChart } from "@/components/free-run-chart";
 import { memo, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
@@ -57,6 +58,13 @@ export const FreeListView = memo(function FreeListView({
   const freeBlocks =
     (state?.blockIds.length ?? 0) + (state?.implicitBlockIds.length ?? 0);
   const largest = runs.reduce((max, run) => Math.max(max, run.count), 0);
+  const dataStart =
+    inspection.blocks.find((block) => block.id === 0)?.offset ?? 12288;
+  // Include undiscovered blocks in the axis without allocating one DOM node per block.
+  const totalBlocks = Math.max(
+    0,
+    Math.ceil((inspection.fileSize - dataStart) / inspection.blockSize),
+  );
   if (!state)
     return (
       <div className="free-list-body">
@@ -70,16 +78,20 @@ export const FreeListView = memo(function FreeListView({
     <div className="free-list-body">
       <div className="free-list-metrics">
         <div>
-          <span>FREE BLOCKS</span>
-          <strong>{state.complete ? count(freeBlocks) : "Unknown"}</strong>
-          <small>
+          <span>Reusable space</span>
+          <strong>
             {state.complete
               ? bytes(freeBlocks * inspection.blockSize)
+              : "Unknown"}
+          </strong>
+          <small>
+            {state.complete
+              ? `${count(freeBlocks)} whole blocks`
               : "Free-list traversal incomplete"}
           </small>
         </div>
         <div>
-          <span>CONTIGUOUS RUNS</span>
+          <span>Contiguous runs</span>
           <strong>{state.complete ? count(runs.length) : "Unknown"}</strong>
           <small>
             {state.complete
@@ -88,11 +100,11 @@ export const FreeListView = memo(function FreeListView({
           </small>
         </div>
         <div>
-          <span>FREE METADATA SLOTS</span>
+          <span>Free metadata slots</span>
           <strong>{state.complete ? count(freeSlots) : "Unknown"}</strong>
           <small>
             {state.complete
-              ? `${bytes(freeSlots * metadataSlotSize(inspection.blockSize))} reusable within metadata blocks`
+              ? `${bytes(freeSlots * metadataSlotSize(inspection.blockSize))} within metadata blocks`
               : "Unknown"}
           </small>
         </div>
@@ -105,10 +117,62 @@ export const FreeListView = memo(function FreeListView({
         </p>
       )}
       <section
+        className="allocator-section free-runs-section"
+        aria-label="Free block runs"
+      >
+        <h3>
+          Free block runs{" "}
+          <small>
+            {count(filtered.length)}
+            {query ? ` of ${count(runs.length)}` : ""}
+          </small>
+        </h3>
+        {!filtered.length && (
+          <p className="free-list-note">
+            {query
+              ? "No free runs match this search."
+              : state.complete
+                ? "No whole blocks are free."
+                : "Free blocks are unknown."}
+          </p>
+        )}
+        {filtered.length > 0 && (
+          <FreeRunChart
+            key={inspection.headerFingerprint ?? inspection.name}
+            runs={filtered.slice(0, layout.visibleCount)}
+            largest={largest}
+            totalBlocks={totalBlocks}
+            blockSize={inspection.blockSize}
+            dataStart={dataStart}
+            matchingId={
+              /^\d+$/.test(query.trim()) ? Number(query.trim()) : null
+            }
+            onPick={onPick}
+          />
+        )}
+        {layout.hasMore && (
+          <div className="continuous-load" ref={layout.sentinelRef}>
+            <span>More runs load as you scroll</span>
+            <Button variant="ghost" size="sm" onClick={layout.loadMore}>
+              Load more runs
+            </Button>
+          </div>
+        )}
+      </section>
+      <section
         className="allocator-section"
         aria-label="Free-list pointer chain"
       >
-        <h3>Checkpoint → free-list storage</h3>
+        <h3 className="heading-with-info">
+          Allocator storage
+          <InfoTip label="About allocator storage">
+            <p>
+              The checkpoint points to a chain of metadata slots containing the
+              free list. These blocks store allocator records; they are not
+              themselves free runs.
+            </p>
+          </InfoTip>
+        </h3>
         <div className="free-list-chain">
           <Button variant="secondary" size="sm" onClick={onCheckpoint}>
             Checkpoint {state.checkpoint}
@@ -138,12 +202,15 @@ export const FreeListView = memo(function FreeListView({
         className="allocator-section"
         aria-label="Metadata slot allocations"
       >
-        <h3>
-          Metadata slots{" "}
-          <small>
-            64 slots per block · {bytes(metadataSlotSize(inspection.blockSize))}{" "}
-            per slot
-          </small>
+        <h3 className="heading-with-info">
+          Metadata slots
+          <InfoTip label="About metadata slots">
+            <p>
+              Each metadata block has 64 slots of{" "}
+              {bytes(metadataSlotSize(inspection.blockSize))}. Free slots are
+              reusable within a metadata block, not whole reusable blocks.
+            </p>
+          </InfoTip>
         </h3>
         <div className="free-slot-legend">
           <span>
@@ -228,47 +295,6 @@ export const FreeListView = memo(function FreeListView({
           <p className="free-list-note">No shared-block references recorded.</p>
         )}
       </details>
-      <section className="allocator-section" aria-label="Free block runs">
-        <h3>
-          Free block runs{" "}
-          <small>
-            {count(filtered.length)}
-            {query ? ` of ${count(runs.length)}` : ""}
-          </small>
-        </h3>
-        {!filtered.length && (
-          <p className="free-list-note">
-            {query
-              ? "No free runs match this search."
-              : state.complete
-                ? "No whole blocks are free."
-                : "Free blocks are unknown."}
-          </p>
-        )}
-        {filtered.length > 0 && (
-          <FreeRunChart
-            key={inspection.headerFingerprint ?? inspection.name}
-            runs={filtered.slice(0, layout.visibleCount)}
-            largest={largest}
-            blockSize={inspection.blockSize}
-            dataStart={
-              inspection.blocks.find((block) => block.id === 0)?.offset ?? 12288
-            }
-            matchingId={
-              /^\d+$/.test(query.trim()) ? Number(query.trim()) : null
-            }
-            onPick={onPick}
-          />
-        )}
-        {layout.hasMore && (
-          <div className="continuous-load" ref={layout.sentinelRef}>
-            <span>More runs load as you scroll</span>
-            <Button variant="ghost" size="sm" onClick={layout.loadMore}>
-              Load more runs
-            </Button>
-          </div>
-        )}
-      </section>
     </div>
   );
 });

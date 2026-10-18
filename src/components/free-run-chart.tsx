@@ -4,12 +4,11 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { Minus, Plus } from "lucide-react";
+import { InfoTip } from "@/components/detail-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   fitRunGrouping,
@@ -21,13 +20,6 @@ import {
   type FreeRun,
 } from "@/lib/free-list";
 
-const LABEL_WIDTH = 140;
-const VALUE_WIDTH = 110;
-const columnsForWidth = (width: number) =>
-  width > 0 && width < 600
-    ? { label: 100, values: 80 }
-    : { label: LABEL_WIDTH, values: VALUE_WIDTH };
-const GAPS = 24;
 const number = (value: number) => value.toLocaleString();
 const bytes = (value: number) =>
   value < 1024 ** 2
@@ -38,16 +30,20 @@ const bytes = (value: number) =>
 const offset = (value: number) => `0x${value.toString(16).padStart(8, "0")}`;
 type Cell = NonNullable<ReturnType<typeof runCell>>;
 
-/** Overview lengths are continuous and always use the full inspection's maximum. */
+/** File position and size comparisons keep the full inspection's scale. */
 export const FreeRunChart = memo(function FreeRunChart(props: {
   runs: FreeRun[];
   largest: number;
+  totalBlocks: number;
   blockSize: number;
   dataStart: number;
   matchingId: number | null;
   onPick: (id: number) => void;
 }) {
-  const { runs, largest, blockSize, matchingId } = props;
+  const { runs, largest, totalBlocks, blockSize, matchingId } = props;
+  const [mode, setMode] = useState<"position" | "size">("position");
+  const scale = Math.max(1, mode === "position" ? totalBlocks : largest);
+  const axisMax = mode === "position" ? Math.max(0, totalBlocks - 1) : largest;
   const [detailStart, setDetailStart] = useState<number | null>(null);
   const [focusDetail, setFocusDetail] = useState(false);
   const overview = useRef<HTMLDivElement>(null);
@@ -73,30 +69,32 @@ export const FreeRunChart = memo(function FreeRunChart(props: {
       returnFocus.current = null;
     }
   }, [detail]);
-  const ticks = [
-    ...new Set([
-      0,
-      Math.round(largest / 4),
-      Math.round(largest / 2),
-      Math.round((largest * 3) / 4),
-      largest,
-    ]),
-  ];
+  const ticks = [...new Set([0, Math.round(axisMax / 2), axisMax])];
   return (
     <div className="free-run-chart">
       {detail ? (
         <>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="free-run-back"
-            onClick={() => {
-              returnFocus.current = detail.start;
-              setDetailStart(null);
-            }}
-          >
-            ← Back to run overview
-          </Button>
+          <div className="free-run-detail-heading">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="free-run-back"
+              aria-label="Back to run overview"
+              onClick={() => {
+                returnFocus.current = detail.start;
+                setDetailStart(null);
+              }}
+            >
+              ← All runs
+            </Button>
+            <span>
+              Blocks {number(detail.start)}–{number(detail.end)}
+              <small>
+                {number(detail.count)} blocks ·{" "}
+                {bytes(detail.count * blockSize)}
+              </small>
+            </span>
+          </div>
           <FreeRunDetail
             {...props}
             runs={[detail]}
@@ -109,24 +107,73 @@ export const FreeRunChart = memo(function FreeRunChart(props: {
           ref={overview}
           className="free-run-overview"
           role="group"
-          aria-label="Free block runs by length"
-          data-scale-max={largest}
+          aria-label={
+            mode === "position"
+              ? "Free block runs by file position"
+              : "Free block runs by length"
+          }
+          data-scale-max={scale}
+          data-mode={mode}
         >
-          <div className="free-run-overview-key">
-            <span>
-              <i data-source="serialized" />
-              Serialized free list
-            </span>
-            <span>
-              <i data-source="implicit" />
-              Outside checkpoint extent
-            </span>
+          <div className="free-run-overview-toolbar">
+            <div className="free-run-overview-key">
+              {runs.some((run) => run.source === "serialized") && (
+                <span>
+                  <i data-source="serialized" />
+                  Free-list entries
+                </span>
+              )}
+              {runs.some((run) => run.source === "implicit") && (
+                <span>
+                  <i data-source="implicit" />
+                  Outside checkpoint
+                </span>
+              )}
+              <InfoTip label="About free block runs">
+                <p>
+                  A run is a consecutive range of reusable blocks. Position
+                  shows where each run sits in the file; Size compares run
+                  lengths. Both scales stay fixed when searching or loading more
+                  runs.
+                </p>
+                <p>
+                  Striped runs lie outside the checkpoint extent. Blank track
+                  space is context, not a measurement of other allocations.
+                  Click a row to explore its blocks. Very small runs have a
+                  minimum one-pixel marker.
+                </p>
+              </InfoTip>
+            </div>
+            <div
+              className="index-toggle"
+              role="group"
+              aria-label="Free run view"
+            >
+              <button
+                type="button"
+                aria-pressed={mode === "position"}
+                onClick={() => setMode("position")}
+              >
+                Position
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === "size"}
+                onClick={() => setMode("size")}
+              >
+                Size
+              </button>
+            </div>
           </div>
           <div className="free-run-overview-axis" aria-hidden="true">
-            <span>Run length (blocks)</span>
+            <span>
+              {mode === "position"
+                ? "Block ID · full file"
+                : "Run length (blocks)"}
+            </span>
             <div>
               {ticks.map((tick) => (
-                <i key={tick} style={{ left: `${(tick / largest) * 100}%` }}>
+                <i key={tick} style={{ left: `${(tick / scale) * 100}%` }}>
                   {number(tick)}
                 </i>
               ))}
@@ -135,14 +182,15 @@ export const FreeRunChart = memo(function FreeRunChart(props: {
           <div className="free-run-overview-plot">
             <div className="free-run-overview-grid" aria-hidden="true">
               {ticks.map((tick) => (
-                <i key={tick} style={{ left: `${(tick / largest) * 100}%` }} />
+                <i key={tick} style={{ left: `${(tick / scale) * 100}%` }} />
               ))}
             </div>
             {runs.map((run) => (
               <FreeRunOverviewBar
                 key={run.start}
                 run={run}
-                largest={largest}
+                scale={scale}
+                position={mode === "position"}
                 blockSize={blockSize}
                 onDrill={() => {
                   setFocusDetail(true);
@@ -159,12 +207,14 @@ export const FreeRunChart = memo(function FreeRunChart(props: {
 
 const FreeRunOverviewBar = memo(function FreeRunOverviewBar({
   run,
-  largest,
+  scale,
+  position,
   blockSize,
   onDrill,
 }: {
   run: FreeRun;
-  largest: number;
+  scale: number;
+  position: boolean;
   blockSize: number;
   onDrill: () => void;
 }) {
@@ -211,15 +261,19 @@ const FreeRunOverviewBar = memo(function FreeRunOverviewBar({
         <span
           className="free-run-overview-bar"
           data-source={run.source}
-          style={{ width: `${(run.count / largest) * 100}%` }}
+          style={{
+            left: `${position ? (run.start / scale) * 100 : 0}%`,
+            width: `${(run.count / scale) * 100}%`,
+          }}
         />
-        <span
-          className="free-run-overview-count"
-          style={{ left: `${(run.count / largest) * 100}%` }}
-        >
-          {number(run.count)}
-        </span>
       </button>
+      <span className="free-run-overview-values">
+        <span>
+          <span className="free-run-overview-count">{number(run.count)}</span>{" "}
+          {run.count === 1 ? "block" : "blocks"}
+        </span>
+        <small>{bytes(run.count * blockSize)}</small>
+      </span>
       {show && box && (
         <div
           className="free-run-tooltip"
@@ -288,11 +342,7 @@ const FreeRunDetail = memo(function FreeRunDetail({
       ?.querySelector<SVGSVGElement>(".free-run-bar")
       ?.focus({ preventScroll: true });
   }, [autoFocus, width]);
-  const columns = columnsForWidth(width);
-  const available = Math.max(
-    40,
-    (width || 960) - columns.label - columns.values - GAPS,
-  );
+  const available = Math.max(40, width || 960);
   const fit = fitRunGrouping(largest, available);
   const grouping = manualGrouping ?? fit;
   const plotWidth = Math.max(available, runBarWidth(largest, grouping));
@@ -314,8 +364,7 @@ const FreeRunDetail = memo(function FreeRunDetail({
   const reveal = useCallback((x: number) => {
     const node = scroller.current;
     if (!node) return;
-    const columns = columnsForWidth(node.clientWidth);
-    const visible = node.clientWidth - columns.label - columns.values - GAPS;
+    const visible = node.clientWidth;
     if (x < node.scrollLeft) node.scrollLeft = x;
     else if (x + RUN_TILE_SIZE > node.scrollLeft + visible)
       node.scrollLeft = x - visible + RUN_TILE_PITCH;
@@ -337,26 +386,18 @@ const FreeRunDetail = memo(function FreeRunDetail({
     });
     return () => cancelAnimationFrame(frame);
   }, [matchingId, searchRunStart]);
-  const ticks = useMemo(
-    () =>
-      runBarWidth(largest, grouping) < 32
-        ? [largest]
-        : [
-            ...new Set([
-              0,
-              Math.round(largest / 4),
-              Math.round(largest / 2),
-              Math.round((largest * 3) / 4),
-              largest,
-            ]),
-          ],
-    [largest, grouping],
-  );
   return (
     <div className="free-run-chart">
       <div className="free-run-chart-tools">
         <span className="free-run-unit">
-          <i />
+          <i
+            style={{
+              background:
+                runs[0]?.source === "implicit"
+                  ? "var(--run-implicit)"
+                  : "var(--run-serialized)",
+            }}
+          />
           {grouping === 1
             ? `1 tile = 1 block · ${bytes(blockSize)}`
             : `1 tile = up to ${number(grouping)} blocks · click to expand`}
@@ -393,38 +434,10 @@ const FreeRunDetail = memo(function FreeRunDetail({
       <div className="free-run-chart-scroll" ref={scroller}>
         <div
           className="free-run-chart-table"
-          role="table"
-          aria-label="Free block runs by length"
-          style={
-            {
-              "--run-plot-width": `${plotWidth}px`,
-              "--run-label-width": `${columns.label}px`,
-              "--run-value-width": `${columns.values}px`,
-            } as CSSProperties
-          }
+          role="group"
+          aria-label="Blocks within selected free run"
+          style={{ width: plotWidth }}
         >
-          <div className="free-run-chart-axis" role="row">
-            <span className="free-run-label" role="columnheader">
-              Block range
-            </span>
-            <div
-              className="free-run-scale"
-              role="columnheader"
-              aria-label="Run length in blocks"
-            >
-              <span>Run length (blocks)</span>
-              <div>
-                {ticks.map((tick) => (
-                  <i key={tick} style={{ left: runBarWidth(tick, grouping) }}>
-                    {number(tick)}
-                  </i>
-                ))}
-              </div>
-            </div>
-            <span className="free-run-values" role="columnheader">
-              Blocks / size
-            </span>
-          </div>
           {runs.map((run) => (
             <FreeRunBar
               key={run.start}
@@ -515,14 +528,8 @@ const FreeRunBar = memo(function FreeRunBar({
     }
   };
   return (
-    <div className="free-run-chart-row" role="row">
-      <span className="free-run-label" role="rowheader">
-        {run.start === run.end
-          ? `Block ${run.start}`
-          : `Blocks ${run.start}–${run.end}`}
-        {run.source === "implicit" && <small>Outside checkpoint extent</small>}
-      </span>
-      <div className="free-run-bar-cell" role="cell">
+    <div className="free-run-chart-row" data-source={run.source}>
+      <div className="free-run-bar-cell">
         <svg
           ref={svg}
           width={runBarWidth(run.count, grouping)}
@@ -630,7 +637,11 @@ const FreeRunBar = memo(function FreeRunBar({
                 width={RUN_TILE_SIZE}
                 height={RUN_TILE_SIZE}
                 rx="2"
-                fill="var(--chart-unknown)"
+                fill={
+                  run.source === "implicit"
+                    ? "var(--run-implicit)"
+                    : "var(--run-serialized)"
+                }
               />
             </pattern>
           </defs>
@@ -677,12 +688,6 @@ const FreeRunBar = memo(function FreeRunBar({
           </div>
         )}
       </div>
-      <span className="free-run-values" role="cell">
-        <strong>
-          {number(run.count)} {run.count === 1 ? "block" : "blocks"}
-        </strong>
-        <small>{bytes(run.count * blockSize)}</small>
-      </span>
     </div>
   );
 });
