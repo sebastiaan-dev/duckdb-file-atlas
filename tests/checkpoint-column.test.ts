@@ -50,6 +50,18 @@ function statistics(payload: number[]): BinaryReader {
     ]),
   );
 }
+test("legacy INTERVAL statistics may omit numeric bounds", () => {
+  const result = readStatistics(statistics([]), { id: 27, name: "INTERVAL" });
+  expect(result.min).toBeUndefined();
+  expect(result.max).toBeUndefined();
+  expect(result.hasNull).toBe(false);
+  expect(result.hasNoNull).toBe(true);
+  // If a minimum is present, a missing maximum must still fail.
+  expect(() =>
+    readStatistics(statistics([...field(200)]), { id: 27, name: "INTERVAL" }),
+  ).toThrow();
+});
+
 function legacyString(
   min: number[],
   max: number[],

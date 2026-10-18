@@ -211,6 +211,7 @@ function readCatalogEntry(reader: BinaryReader): CatalogTable | null {
 
 interface CreateInfoBase {
   qualifiedPath: string[];
+  legacySchema: string;
 }
 function readCreateInfoBase(
   reader: BinaryReader,
@@ -223,9 +224,9 @@ function readCreateInfoBase(
       `CreateInfo type ${actualType} does not match catalog type ${expectedType}`,
     );
 
-  // Catalog/schema were emitted before v2.0 only. Reading their optional slots preserves forward parsing.
-  if (reader.optional(101)) reader.string();
-  if (reader.optional(102)) reader.string();
+  // Before v2.0 catalog/schema lived here rather than in qualified_name.
+  if (reader.optional(101)) reader.string(); // catalog is not part of a file-local name
+  const legacySchema = optionalString(reader, 102);
   if (reader.optional(103)) reader.bool();
   if (reader.optional(104)) reader.bool();
   reader.field(105);
@@ -236,7 +237,7 @@ function readCreateInfoBase(
   if (reader.optional(109)) readLogicalDependencyList(reader);
   if (reader.optional(110)) reader.string();
   const qualifiedPath = reader.optional(111) ? readQualifiedName(reader) : [];
-  return { qualifiedPath };
+  return { qualifiedPath, legacySchema };
 }
 
 function readQualifiedName(reader: BinaryReader): string[] {
@@ -308,7 +309,7 @@ function readTableEntry(reader: BinaryReader): CatalogTable {
       readStringMapOptional(reader, 206, () =>
         readParsedExpressionPointer(reader),
       );
-      return { qualifiedPath: base.qualifiedPath, localName, columns };
+      return { ...base, localName, columns };
     }),
   );
   if (!info) fail("table entry has a null CreateInfo pointer");
@@ -317,10 +318,13 @@ function readTableEntry(reader: BinaryReader): CatalogTable {
   const pointer = readMetaPointer(reader);
   reader.field(102);
   const totalRows = reader.uint();
-  reader.field(103);
-  const legacyPointers = reader.list(() => readBlockPointer(reader));
-  reader.field(104);
-  const indexes = reader.list(() => readIndexStorageInfo(reader));
+  // Both index lists are read with defaults (CheckpointReader::ReadTableData).
+  const legacyPointers = reader.optional(103)
+    ? reader.list(() => readBlockPointer(reader))
+    : [];
+  const indexes = reader.optional(104)
+    ? reader.list(() => readIndexStorageInfo(reader))
+    : [];
   for (const [ordinal, pointer] of legacyPointers.entries()) {
     if (pointer.blockId < -1)
       throw new Error("Corrupt legacy index root pointer.");
@@ -333,12 +337,16 @@ function readTableEntry(reader: BinaryReader): CatalogTable {
         allocatorInfos: [],
       });
   }
-  reader.field(105);
-  reader.uint(); // next_row_id; totalRows remains the row group count source used by the scanner
+  // next_row_id exists from v2.0.0; older files imply next_row_id == total_rows.
+  if (reader.optional(105)) reader.uint();
 
   const tableName = info.localName || info.qualifiedPath.at(-1) || "";
   const pathParts =
-    info.qualifiedPath.length > 1 ? info.qualifiedPath.slice(1) : [tableName];
+    info.qualifiedPath.length > 1
+      ? info.qualifiedPath.slice(1)
+      : info.legacySchema
+        ? [info.legacySchema, tableName]
+        : [tableName];
   const pathName = pathParts.map(displayIdentifier).join(".");
   if (!tableName) fail("table has no name");
   return {

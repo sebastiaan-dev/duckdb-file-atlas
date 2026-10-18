@@ -1,0 +1,85 @@
+.tpch-generator {
+  padding: 22px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.tpch-generator h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: -0.025em;
+}
+.tpch-generator p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.tpch-generator-controls,
+.tpch-generator-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.tpch-generator-controls label {
+  color: var(--muted);
+  font-size: 10px;
+  width: 100%;
+}
+.tpch-generator button,
+.tpch-generator select,
+.tpch-generator-result a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: none;
+}
+.tpch-generator button,
+.tpch-generator-result a {
+  cursor: pointer;
+}
+.tpch-generator button:hover:not(:disabled),
+.tpch-generator-result a:hover {
+  border-color: var(--chart-primary);
+}
+.tpch-generator select {
+  flex: 1;
+  min-width: 0;
+}
+.tpch-generator button:disabled,
+.tpch-generator select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.tpch-generator p[role="status"] {
+  margin: 12px 0 0;
+}
+.tpch-generator p:empty {
+  display: none;
+}
+.tpch-generator .error-message {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.tpch-generator-result {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.tpch-generator-result .tpch-format-note {
+  flex-basis: 100%;
+  font-size: 10px;
+  margin-bottom: 4px;
+}

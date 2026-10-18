@@ -391,7 +391,9 @@ function readBaseStatistics(
     reader.field(103);
     const nested = reader.object(() => {
       if (typeHasNumericStats(type)) {
-        reader.field(200);
+        // NumericStats::Deserialize permits an empty stats object. In
+        // particular, INTERVAL bounds were not persisted before v2.0.0.
+        if (!reader.optional(200)) return {};
         const min = readNumericStat(reader, type);
         reader.field(201);
         const max = readNumericStat(reader, type);

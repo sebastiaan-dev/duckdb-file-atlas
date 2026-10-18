@@ -7,7 +7,14 @@ import type {
   FreeListState,
 } from "./types";
 
-export const LATEST_STORAGE_VERSION = 69;
+import {
+  LATEST_STORAGE_VERSION,
+  MIN_STORAGE_VERSION,
+  resolveStorageVersion,
+  storageVersionName,
+} from "./storage-version";
+
+export { LATEST_STORAGE_VERSION };
 
 const FILE_HEADER_SIZE = 4096;
 const HEADER_COUNT = 3;
@@ -110,7 +117,9 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
 
   const parsedHeaders = pages
     .slice(1)
-    .map((page, index) => parseDatabaseHeader(page, (index + 1) as 1 | 2));
+    .map((page, index) =>
+      parseDatabaseHeader(page, (index + 1) as 1 | 2, main.versionNumber),
+    );
   const checksumValidHeaders = parsedHeaders.filter((header) => header.valid);
   if (checksumValidHeaders.length === 0)
     throw new Error(
@@ -124,9 +133,12 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
     return left === right ? b.slot - a.slot : left > right ? -1 : 1;
   });
   const active = checksumValidHeaders[0];
-  if (active.storageVersion !== LATEST_STORAGE_VERSION) {
+  if (
+    active.storageVersion < MIN_STORAGE_VERSION ||
+    active.storageVersion > LATEST_STORAGE_VERSION
+  ) {
     throw new Error(
-      `Storage version ${active.storageVersion} is not supported; this reader supports DuckDB storage version ${LATEST_STORAGE_VERSION} (v2.0.0).`,
+      `This file's storage version (header field ${active.storageField}, main header ${main.versionNumber}) is not supported; this reader supports DuckDB storage versions ${storageVersionName(MIN_STORAGE_VERSION)} through ${storageVersionName(LATEST_STORAGE_VERSION)}.`,
     );
   }
   if (
@@ -280,6 +292,7 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
       checksum,
       metaPointer: _metaPointer,
       freePointer: _freePointer,
+      storageField: _storageField,
       ...header
     }) => ({ ...header, valid: header.valid }),
   );
@@ -347,6 +360,8 @@ interface ParsedHeader extends CheckpointHeader {
   checksum: bigint;
   metaPointer: bigint;
   freePointer: bigint;
+  /** Raw version field: serialization version before v2.0.0, storage version after. */
+  storageField: number;
 }
 
 interface MetadataPointer {
@@ -365,6 +380,7 @@ interface LoadedBlock extends VerifiedBlock {
 function parseMainHeader(page: Uint8Array): {
   encrypted: boolean;
   libraryVersion: string;
+  versionNumber: bigint;
 } {
   const data = page.subarray(CHECKSUM_SIZE);
   if (UTF8.decode(data.subarray(0, 4)) !== "DUCK")
@@ -376,16 +392,21 @@ function parseMainHeader(page: Uint8Array): {
   // An upgraded database can retain an older main-header version while its checkpoint uses v69.
   if (
     versionNumber !== 999n &&
-    (versionNumber < 64n || versionNumber > BigInt(LATEST_STORAGE_VERSION))
+    (versionNumber < BigInt(MIN_STORAGE_VERSION) ||
+      versionNumber > BigInt(LATEST_STORAGE_VERSION))
   ) {
     throw new Error(
       `Main-header version marker ${versionNumber} is outside the supported storage layout.`,
     );
   }
-  return { encrypted: (flags & 1n) !== 0n, libraryVersion };
+  return { encrypted: (flags & 1n) !== 0n, libraryVersion, versionNumber };
 }
 
-function parseDatabaseHeader(page: Uint8Array, slot: 1 | 2): ParsedHeader {
+function parseDatabaseHeader(
+  page: Uint8Array,
+  slot: 1 | 2,
+  mainVersion: bigint,
+): ParsedHeader {
   let checksum = 0n;
   let valid = false;
   try {
@@ -402,6 +423,7 @@ function parseDatabaseHeader(page: Uint8Array, slot: 1 | 2): ParsedHeader {
   let blockSize = 0;
   let vectorSize = 0;
   let storageVersion = 0;
+  let storageField = 0;
   try {
     iteration = readU64(payload, 0);
     metaPointer = readU64(payload, 8);
@@ -410,18 +432,18 @@ function parseDatabaseHeader(page: Uint8Array, slot: 1 | 2): ParsedHeader {
       readU64(payload, 24),
       `checkpoint ${slot} block count`,
     );
-    blockSize = safeNumber(
-      readU64(payload, 32),
-      `checkpoint ${slot} block size`,
-    );
-    vectorSize = safeNumber(
-      readU64(payload, 40),
-      `checkpoint ${slot} vector size`,
-    );
-    storageVersion = safeNumber(
+    // DuckDB reads 0 as the defaults of files written before these fields.
+    blockSize =
+      safeNumber(readU64(payload, 32), `checkpoint ${slot} block size`) ||
+      262_144;
+    vectorSize =
+      safeNumber(readU64(payload, 40), `checkpoint ${slot} vector size`) ||
+      2048;
+    storageField = safeNumber(
       readU64(payload, 48),
       `checkpoint ${slot} storage version`,
     );
+    storageVersion = resolveStorageVersion(mainVersion, storageField) ?? 0;
   } catch {
     valid = false;
   }
@@ -434,6 +456,7 @@ function parseDatabaseHeader(page: Uint8Array, slot: 1 | 2): ParsedHeader {
     blockSize,
     vectorSize,
     storageVersion,
+    storageField,
     valid,
     checksum,
     metaPointer,

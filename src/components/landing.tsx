@@ -1,3 +1,4 @@
+import { TpchGenerator } from "./tpch-generator";
 import { useState } from "react";
 import { AlertCircle, FileUp, LoaderCircle, Lock, X } from "lucide-react";
 
@@ -8,6 +9,7 @@ export interface LandingProps {
   error: string;
   onDismissError: () => void;
   onChooseFile: () => void;
+  onGenerated: (file: File) => void | Promise<void>;
 }
 
 /** First screen: choose or drop a local DuckDB file. */
@@ -17,6 +19,7 @@ export function Landing({
   error,
   onDismissError,
   onChooseFile,
+  onGenerated,
 }: LandingProps) {
   const [hover, setHover] = useState(false);
   return (
@@ -66,8 +69,9 @@ export function Landing({
         <p className="landing-privacy" id="landing-privacy">
           <Lock size={12} aria-hidden="true" />
           The file is read in your browser and never uploaded. Supports DuckDB
-          storage version v2.0.0 files.
+          storage formats v1.0.0–v2.0.0.
         </p>
+        <TpchGenerator onGenerated={onGenerated} disabled={loading} />
       </div>
     </main>
   );

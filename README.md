@@ -1,6 +1,6 @@
 # DuckDB File Atlas
 
-DuckDB File Atlas reads a local DuckDB database directly in your browser. It traverses the active checkpoint’s catalog, table, row-group, and column metadata, then builds a linked physical block map and logical segment inspector. No metadata sidecar, DuckDB runtime, upload, or server is needed for supported revision-69 checkpoints.
+DuckDB File Atlas reads a local DuckDB database directly in your browser. It traverses the active checkpoint’s catalog, table, row-group, and column metadata, then builds a linked physical block map and logical segment inspector. No metadata sidecar, DuckDB runtime, upload, or server is needed for inspection of supported storage formats 64–69 (`v1.0.0` through `v2.0.0`). An optional, lazily loaded DuckDB-WASM runtime can generate a real TPC-H database in the browser.
 
 The parser runs in a background worker, reads bounded slices of the file, and verifies each metadata block it traverses. Segment sizes come from the checkpoint’s optional `byte_size` field. Constants that have no physical block occupy zero physical bytes, even when DuckDB records a nonzero codec size.
 
@@ -12,7 +12,7 @@ An optional companion exporter remains available as a fallback when the native d
 bun scripts/inspect.ts --duckdb /path/to/duckdb /path/to/database.duckdb > manifest.json
 ```
 
-The exporter uses a compatible, read-only DuckDB CLI. Sidecars are matched to the file size, storage version, and SHA-256 of the first 12 KiB. They do not expose exact segment sizes and cannot replace a successfully decoded native map.
+The exporter currently targets v2.0.0 storage and uses a compatible, read-only DuckDB CLI. Sidecars are matched to the file size, storage version, and SHA-256 of the first 12 KiB. They do not expose exact segment sizes and cannot replace a successfully decoded native map.
 
 ## Interface
 
@@ -34,6 +34,23 @@ bun run dev
 ```
 
 The dev server prints a local URL. Open it, then drop a `.duckdb` file on the start screen or click to choose one. Nothing is shown until a real file is opened; the file never leaves the browser.
+
+## Generate TPC-H in the browser
+
+On the start screen, choose **Generate TPC-H**. SF 0.01 is the default; SF 0.1
+is available for a larger file. Generation downloads the pinned DuckDB-WASM
+runtime (`1.33.1-dev65.0`) from jsDelivr and the official `tpch` extension from
+`extensions.duckdb.org`. It runs in an isolated worker, checkpoints and detaches
+the database, then offers **Download .duckdb** and **Open generated sample**.
+No database contents are sent to a server. Cancellation terminates the worker;
+all worker resources are released on completion, failure or cancellation.
+
+The generator needs network access, several hundred MB of browser memory, and
+CSP permission for those CDN downloads and Blob workers. Opening your own file
+never loads DuckDB-WASM. Generated files use v1.5.0 storage: column ownership,
+row groups, compression and statistics can be inspected, but this format does
+not persist exact column-segment lengths. Those lengths and internal free space
+stay unknown, rather than being estimated.
 
 ## Check and build
 
@@ -123,16 +140,17 @@ The SQL ends with `CHECKPOINT` so the file is self-contained before the read-onl
 
 ## Supported scope
 
-- DuckDB storage version 69 (`v2.0.0`) only.
+- DuckDB storage formats 64–69 (`v1.0.0`–`v2.0.0`), including the default v1.0.0-format files written by released 1.x CLIs. Legacy serialization-version header fields are normalized to storage versions.
 - Unencrypted, checkpointed, single-file databases.
 - Native catalog, row-group, persistent column, statistics, recorded byte-size, and checkpoint deletion-mask traversal.
 - Named index ownership, packed-root summaries, and supported ART allocator-mask occupancy with verified block checksums. Unsupported retained index layouts have local explanations and unknown occupancy rather than guessed sizes.
 - Browser discovery is capped at 100,000 physical blocks. Metadata decoding is bounded by a 128 MiB cache, 4,096 slots per stream, one million traversal steps, and 64 object levels. Unsupported or incomplete native decoding falls back to physical inspection with an explanation.
+- Exact column-segment lengths are a v2.0.0 feature; missing lengths in older files stay unknown. Supported 1.5/2.0 ART allocator masks can be measured; earlier ART layouts remain explicitly unmeasured.
 - Unknown bytes remain unknown. Free space is reported only when verified from the file's free list.
 
 The exporter rejects nonempty `.wal`, `.wal.checkpoint`, and `.wal.recovery` siblings before and after reading. The browser can inspect only the chosen file and cannot check for sibling WAL files: checkpoint and close a database before opening it.
 
-The reader does not decompress column values or reconstruct every SQL expression, materialized table sample, VARIANT/GEOMETRY layout, or extension-specific storage feature. Unsupported layouts remain explicitly unknown instead of producing fragmentation estimates. Older storage versions, encrypted files, files with unresolved WAL changes, and formats newer than storage version 69 are outside the current supported scope.
+The reader does not decompress column values or reconstruct every SQL expression, materialized table sample, VARIANT/GEOMETRY layout, or extension-specific storage feature. Unsupported layouts remain explicitly unknown instead of producing fragmentation estimates. Storage formats before 64, encrypted files, files with unresolved WAL changes, and formats newer than storage version 69 are outside the current supported scope.
 
 See [the storage-format notes](docs/storage-format.md) for the source references and the limits behind these claims.
 

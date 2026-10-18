@@ -12,7 +12,9 @@ test("the first screen is a file picker, not example data", async ({
   await expect(page.getByRole("button", { name: "Show sidebar" })).toHaveCount(
     0,
   );
-  await expect(page.getByText(/never uploaded/)).toBeVisible();
+  await expect(page.locator("#landing-privacy")).toContainText(
+    "never uploaded",
+  );
 
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: /Drop a \.duckdb file here/ }).click();

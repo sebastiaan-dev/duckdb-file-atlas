@@ -165,11 +165,30 @@ describe("DuckDB file reader", () => {
     );
   });
 
-  it("rejects storage versions other than 69", async () => {
+  it("rejects invalid version-field encodings without falling back to an old checkpoint", async () => {
     const bytes = makeFixture({ slot2: { storageVersion: 68n } });
     await expect(inspectFile(asFile(bytes))).rejects.toThrow(
-      /Storage version 68 is not supported/,
+      /header field 68, main header 999.*not supported/,
     );
+  });
+
+  it("normalizes legacy header versions and default block/vector sizes", async () => {
+    for (const [raw, expected] of [
+      [1n, 64],
+      [4n, 65],
+      [5n, 66],
+      [6n, 67],
+      [7n, 68],
+    ] as const) {
+      const bytes = makeFixture({
+        mainVersion: 64n,
+        slot2: { storageVersion: raw, blockSize: 0n, vectorSize: 0n },
+      });
+      const result = await inspectFile(asFile(bytes));
+      expect(result.storageVersion).toBe(expected);
+      expect(result.blockSize).toBe(262144);
+      expect(result.vectorSize).toBe(2048);
+    }
   });
 
   it("rejects encrypted files and truncated headers", async () => {

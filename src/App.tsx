@@ -1589,6 +1589,7 @@ export default function App() {
           error={error}
           onDismissError={() => setError("")}
           onChooseFile={() => fileInputRef.current?.click()}
+          onGenerated={loadDatabase}
         />
       )}
     </div>

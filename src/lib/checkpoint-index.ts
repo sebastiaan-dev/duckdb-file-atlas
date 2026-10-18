@@ -96,7 +96,10 @@ function layoutReason(index: IndexStorage): string | undefined {
     return "Unrecognized index storage options";
   if (options.v1_0_0_storage !== false)
     return "Legacy or unrecognized ART allocator layout";
-  if (!["68", "69"].includes(String(options.storage_version)))
+  // Released 1.5 writes serialization version 7 here; v2.0's writer
+  // switched this option to storage version 68/69. Allocator geometry and
+  // masks are the same and are checked independently below.
+  if (!["7", "68", "69"].includes(String(options.storage_version)))
     return "Missing or unsupported per-index storage_version";
   if (index.allocatorInfos.length !== 9)
     return "Unrecognized ART allocator count";

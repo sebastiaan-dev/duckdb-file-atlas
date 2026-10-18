@@ -109,6 +109,21 @@ describe("index allocator inspection", () => {
       ),
     ).toBe(true);
   });
+  test("released v1.5 serialization version 7 uses the same checked allocator layout", async () => {
+    for (const version of ["7", "68", "69"]) {
+      const f = fixture();
+      f.index.options.storage_version = version;
+      const [index] = await inspectIndexes(
+        f.file,
+        f.physical,
+        [{ table: "main.t", index: f.index }],
+        f.checksum,
+      );
+      expect(index.complete).toBe(true);
+      expect(index.occupiedBytes).toBe(144);
+      expect(index.freeBytes).toBe(96);
+    }
+  });
   test("unknown and retained legacy versions preserve names without invented occupancy", async () => {
     for (const options of [
       {},
