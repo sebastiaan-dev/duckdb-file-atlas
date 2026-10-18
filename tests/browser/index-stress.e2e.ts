@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDemo } from "../../src/lib/demo";
+import { createSyntheticInspection } from "../fixtures/synthetic-inspection";
 import type {
   FileBlock,
   FileInspection,
@@ -37,9 +37,8 @@ async function openSyntheticIndex(page: Page, complete: boolean) {
       kind: slot % 2 ? "unused" : "index",
       indexId: "stress",
     });
-  const inspection = createDemo();
+  const inspection = createSyntheticInspection();
   inspection.name = "browser-fixture.duckdb";
-  inspection.source = "file";
   inspection.blockSize = size;
   inspection.fileSize = databaseFixture().buffer.length;
   inspection.segments = [];
@@ -157,7 +156,10 @@ test("incomplete mask scans never present allocator catalog counts as measured o
   await expect(page.locator(".index-unknown-extent")).toContainText(
     "Unmeasured",
   );
-  await expect(page.locator(".index-metrics strong")).toHaveText(["Unknown", "Unknown"]);
+  await expect(page.locator(".index-metrics strong")).toHaveText([
+    "Unknown",
+    "Unknown",
+  ]);
   await expect(page.locator(".index-allocator-row")).toHaveCount(0);
   await expect(page.locator(".index-buffer-tile")).toHaveCount(0);
   await expect(page.locator(".index-technical")).not.toHaveAttribute(

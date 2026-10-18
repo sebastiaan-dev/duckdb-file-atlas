@@ -139,7 +139,7 @@ async function inspectHeader(path: string): Promise<{ inspection: FileInspection
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not inspect the DuckDB file header before querying it: ${detail}`);
   }
-  if (inspection.source !== 'file' || inspection.fileSize !== fileSize) {
+  if (inspection.fileSize !== fileSize) {
     throw new Error('The file inspector did not confirm the same on-disk DuckDB file and size.');
   }
   if (!inspection.headerFingerprint || !/^[a-f\d]{64}$/i.test(inspection.headerFingerprint)) {

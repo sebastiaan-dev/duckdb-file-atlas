@@ -1,4 +1,11 @@
-import type { ByteRange, FileBlock, FileInspection, Segment } from "./types";
+/** Test-only synthetic inspection model: a deterministic, illustrative layout
+ * used to drive UI tests through a mocked inspection worker. Not app data. */
+import type {
+  ByteRange,
+  FileBlock,
+  FileInspection,
+  Segment,
+} from "../../src/lib/types";
 
 const HEADER_SIZE = 4096;
 const DATA_START = HEADER_SIZE * 3;
@@ -188,7 +195,7 @@ const tables: TableSpec[] = [
 ];
 
 /** A deterministic illustrative model, not a parsed DuckDB file or a raw-byte fixture. */
-export function createDemo(): FileInspection {
+export function createSyntheticInspection(): FileInspection {
   const segments: Segment[] = [];
   const freeIds = new Set<number>();
   const metadataIds = new Set<number>([
@@ -219,7 +226,9 @@ export function createDemo(): FileInspection {
     if (!current || cursor + gap + size > BLOCK_SIZE) {
       const id = availableIds[++allocationIndex];
       if (id === undefined)
-        throw new Error("Illustrative segments exceed the demo block budget.");
+        throw new Error(
+          "Illustrative segments exceed the synthetic block budget.",
+        );
       current = block(id, "data", "Illustrative column data", []);
       dataBlocks.set(id, current);
       cursor = CHECKSUM_SIZE;
@@ -389,9 +398,8 @@ export function createDemo(): FileInspection {
     blocks.push(item);
   }
   return {
-    name: "warehouse-demo.duckdb",
+    name: "synthetic-warehouse.duckdb",
     fileSize: DATA_START + BLOCK_COUNT * BLOCK_SIZE,
-    source: "demo",
     storageVersion: 69,
     blockSize: BLOCK_SIZE,
     blockHeaderSize: CHECKSUM_SIZE,
@@ -419,7 +427,7 @@ export function createDemo(): FileInspection {
 }
 
 /** Deterministic placeholder bytes only; these are not bytes from a DuckDB database. */
-export function demoBytes(offset: number, length: number): Uint8Array {
+export function syntheticBytes(offset: number, length: number): Uint8Array {
   if (
     !Number.isSafeInteger(offset) ||
     !Number.isSafeInteger(length) ||
@@ -434,7 +442,7 @@ export function demoBytes(offset: number, length: number): Uint8Array {
     offset + length > DATA_START + BLOCK_COUNT * BLOCK_SIZE
   )
     throw new RangeError(
-      "Requested demo bytes exceed the illustrative sample file.",
+      "Requested synthetic bytes exceed the illustrative sample file.",
     );
   return Uint8Array.from(
     { length },

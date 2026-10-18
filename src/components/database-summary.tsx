@@ -80,7 +80,6 @@ export function DatabaseSummary({
   const [notesOpen, setNotesOpen] = useState(false);
   const present = roles.filter((role) => role.bytes > 0);
   const notes = inspection.warnings;
-  const demo = inspection.source === "demo";
   const internalFree = fragmentation.measuredBlocks
     ? formatBytes(fragmentation.bytes, true)
     : null;
@@ -249,9 +248,7 @@ export function DatabaseSummary({
             >
               <summary>
                 <Info size={13} />
-                {demo
-                  ? "Example data · layout and statistics are illustrative"
-                  : `Inspection notes and decoding coverage (${notes.length})`}
+                {`Inspection notes and decoding coverage (${notes.length})`}
                 <ChevronDown size={12} />
               </summary>
               <div>

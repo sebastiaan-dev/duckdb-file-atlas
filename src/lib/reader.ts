@@ -327,7 +327,6 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
   return {
     name: file.name,
     fileSize: file.size,
-    source: "file",
     storageVersion: active.storageVersion,
     blockSize: active.blockSize,
     blockHeaderSize: CHECKSUM_SIZE,

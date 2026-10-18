@@ -1,4 +1,5 @@
 import { IndexView } from "@/components/index-view";
+import { Landing } from "@/components/landing";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DatabaseSummary } from "@/components/database-summary";
 import { checkpointStatus, commonSchemaPrefix } from "@/lib/checkpoint-status";
@@ -69,7 +70,6 @@ import {
   compressionPalette,
   stableColor,
 } from "@/lib/palette";
-import { createDemo } from "@/lib/demo";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { decodeMetaPointer } from "@/lib/meta-pointer";
 import { describeStatistics } from "@/lib/segment-stats";
@@ -181,17 +181,47 @@ function DetailPair({
   );
 }
 
-export default function App() {
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    try {
-      return localStorage.getItem("atlas-theme") === "dark" ? "dark" : "light";
-    } catch {
-      return "light";
-    }
-  });
-  const [inspection, setInspection] = useState<FileInspection>(() =>
-    createDemo(),
-  );
+export interface SidebarChrome {
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+  /** Below 1080 px the sidebar is a slide-in drawer. */
+  narrow: boolean;
+  drawerOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
+  drawerRef: React.RefObject<HTMLElement | null>;
+}
+
+interface WorkspaceProps {
+  inspection: FileInspection;
+  setInspection: (inspection: FileInspection) => void;
+  activeFile: File | null;
+  loadingFile: boolean;
+  dragging: boolean;
+  /** Load errors from the shell; the workspace reports manifest errors too. */
+  error: string;
+  setError: (error: string) => void;
+  sidebar: SidebarChrome;
+}
+
+/** Everything shown for one loaded database; remounted for each new file. */
+function Workspace({
+  inspection,
+  setInspection,
+  activeFile,
+  loadingFile,
+  dragging,
+  error,
+  setError,
+  sidebar,
+}: WorkspaceProps) {
+  const {
+    collapsed: sidebarCollapsed,
+    setCollapsed: setSidebarCollapsed,
+    narrow,
+    drawerOpen,
+    setDrawerOpen,
+    drawerRef,
+  } = sidebar;
   const [view, setView] = useState<ViewMode>("physical");
   const [colorMode, setColorMode] = useState<ColorMode>("role");
   const [logicalColorMode, setLogicalColorMode] =
@@ -217,45 +247,12 @@ export default function App() {
     "atlas-summary-expanded",
     false,
   );
-  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag(
-    "atlas-sidebar-collapsed",
-    false,
-  );
-  // Below this width the sidebar becomes a slide-in drawer.
-  const narrow = useMediaQuery("(max-width: 1080px)");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const drawerRef = useRef<HTMLElement>(null);
-  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!narrow) setDrawerOpen(false);
-  }, [narrow]);
-  const drawerWasOpen = useRef(false);
-  useEffect(() => {
-    // Move focus into the drawer, and back to its toggle when it closes.
-    if (drawerOpen) drawerRef.current?.focus();
-    else if (drawerWasOpen.current) sidebarToggleRef.current?.focus();
-    drawerWasOpen.current = drawerOpen;
-  }, [drawerOpen]);
-  const sidebarOpen = narrow ? drawerOpen : !sidebarCollapsed;
-  const toggleSidebar = useCallback(() => {
-    if (window.matchMedia("(max-width: 1080px)").matches)
-      setDrawerOpen((open) => !open);
-    else setSidebarCollapsed((collapsed) => !collapsed);
-  }, [setSidebarCollapsed]);
-  const [activeFile, setActiveFile] = useState<File | null>(null);
   const [byteView, setByteView] = useState<ByteView>(null);
-  const [loadingFile, setLoadingFile] = useState(false);
   const [loadingBytes, setLoadingBytes] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState("");
   const [manifestMessage, setManifestMessage] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const manifestInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
-  const fileLoadRequestRef = useRef(0);
-  const inspectionAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => inspectionAbortRef.current?.abort(), []);
   const manifestImportRequestRef = useRef(0);
 
   const semanticReady = inspection.capabilities.semantic;
@@ -467,48 +464,6 @@ export default function App() {
     setByteView(null);
   }, []);
 
-  const loadDatabase = useCallback(
-    async (file: File) => {
-      const requestId = ++fileLoadRequestRef.current;
-      inspectionAbortRef.current?.abort();
-      const controller = new AbortController();
-      inspectionAbortRef.current = controller;
-      manifestImportRequestRef.current += 1;
-      requestIdRef.current += 1;
-      setByteView(null);
-      setLoadingBytes(false);
-      setLoadingFile(true);
-      setError("");
-      setManifestMessage("");
-      try {
-        const result = await inspectDatabase(file, controller.signal);
-        if (requestId !== fileLoadRequestRef.current) return;
-        setInspection(result);
-        setActiveFile(file);
-        setView("physical");
-        setColorMode("role");
-        setLogicalColorMode("compression");
-        setValueColumnKey("");
-        setQuery("");
-
-        clearSelection();
-      } catch (caught) {
-        if (requestId === fileLoadRequestRef.current)
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "This file could not be inspected.",
-          );
-      } finally {
-        if (requestId === fileLoadRequestRef.current) {
-          setLoadingFile(false);
-          setDragging(false);
-        }
-      }
-    },
-    [clearSelection],
-  );
-
   const importManifest = useCallback(
     async (file: File) => {
       const requestId = ++manifestImportRequestRef.current;
@@ -571,7 +526,7 @@ export default function App() {
   const loadBlockBytes = useCallback(
     async (block: FileBlock, requestedOffset = block.offset) => {
       const requestId = ++requestIdRef.current;
-      if (!activeFile || inspection.source !== "file") {
+      if (!activeFile) {
         setByteView(null);
         return;
       }
@@ -600,7 +555,7 @@ export default function App() {
         if (requestId === requestIdRef.current) setLoadingBytes(false);
       }
     },
-    [activeFile, inspection.fileSize, inspection.source],
+    [activeFile, inspection.fileSize],
   );
 
   useEffect(() => {
@@ -651,20 +606,6 @@ export default function App() {
         searchInputRef.current?.focus();
         return;
       }
-      if (
-        event.key === "[" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !(
-          event.target instanceof HTMLElement &&
-          event.target.closest("input, textarea, select, [contenteditable]")
-        )
-      ) {
-        event.preventDefault();
-        toggleSidebar();
-        return;
-      }
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target;
       if (
@@ -678,19 +619,12 @@ export default function App() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [clearSelection, toggleSidebar]);
+  }, [clearSelection]);
 
   const selectCheckpoint = (slot: 1 | 2) => {
     setSelectedHeaderSlot(slot);
     setSelectedBlockId(slot === 1 ? -2 : -1);
     setSelectedSegmentId(null);
-  };
-
-  const onDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) void loadDatabase(file);
   };
 
   const tables = useMemo(() => {
@@ -725,9 +659,7 @@ export default function App() {
     selectedSlot: selectedHeaderSlot,
     onSelectCheckpoint: selectCheckpoint,
   };
-  const hasHeadingActions =
-    inspection.source === "demo" ||
-    (inspection.source === "file" && !inspection.native);
+  const hasHeadingActions = !inspection.native;
   const roleLabels: Record<StorageRole, string> = {
     header: "Headers",
     metadata: "Metadata",
@@ -753,44 +685,13 @@ export default function App() {
   );
   const freeBlockCount = useMemo(
     () =>
-      inspection.source === "demo" || inspection.freeList?.complete !== false
+      inspection.freeList?.complete !== false
         ? dataBlocks.filter((block) => block.role === "free").length
         : null,
-    [dataBlocks, inspection.freeList, inspection.source],
+    [dataBlocks, inspection.freeList],
   );
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem("atlas-theme", theme);
-    } catch {
-      /* Storage is optional. */
-    }
-  }, [theme]);
   return (
-    <div
-      className="app-shell"
-      data-theme={theme}
-      onDragOver={(event) => {
-        event.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget === event.target) setDragging(false);
-      }}
-      onDrop={onDrop}
-    >
-      <input
-        ref={fileInputRef}
-        className="sr-only"
-        type="file"
-        accept=".duckdb,.db,.ddb,application/octet-stream"
-        aria-label="Choose a DuckDB database file"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void loadDatabase(file);
-          event.target.value = "";
-        }}
-      />
+    <>
       <input
         ref={manifestInputRef}
         className="sr-only"
@@ -803,61 +704,6 @@ export default function App() {
           event.target.value = "";
         }}
       />
-      <header className="topbar">
-        <div className="brand-lockup">
-          <button
-            ref={sidebarToggleRef}
-            type="button"
-            className="sidebar-toggle"
-            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-            aria-expanded={sidebarOpen}
-            title={`${sidebarOpen ? "Hide" : "Show"} sidebar ( [ )`}
-            onClick={toggleSidebar}
-          >
-            {sidebarOpen ? (
-              <PanelLeftClose size={17} />
-            ) : (
-              <PanelLeftOpen size={17} />
-            )}
-          </button>
-          <span className="brand-mark">
-            <Database size={20} strokeWidth={1.6} />
-          </span>
-          <strong>File Atlas</strong>
-          <span className="brand-divider" />
-          <span className="brand-subtitle">DuckDB</span>
-        </div>
-        <div className="topbar-actions">
-          <button
-            className="theme-toggle"
-            type="button"
-            aria-label={
-              theme === "light"
-                ? "Switch to dark theme"
-                : "Switch to light theme"
-            }
-            onClick={() =>
-              setTheme((value) => (value === "light" ? "dark" : "light"))
-            }
-          >
-            {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
-          </button>
-          <Button
-            className="open-file-button"
-            variant="primary"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loadingFile}
-          >
-            {loadingFile ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <Plus size={16} />
-            )}
-            {loadingFile ? "Reading file…" : "Open database"}
-          </Button>
-        </div>
-      </header>
       <div
         className={`app-layout${!narrow && sidebarCollapsed ? " sidebar-collapsed" : ""}`}
       >
@@ -923,7 +769,7 @@ export default function App() {
             actions={
               hasHeadingActions ? (
                 <>
-                  {inspection.source === "file" && !inspection.native && (
+                  {!inspection.native && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -934,14 +780,9 @@ export default function App() {
                       Import metadata
                     </Button>
                   )}
-                  {inspection.source === "demo" && (
-                    <Badge variant="neutral">Example</Badge>
+                  {!inspection.native && semanticReady && (
+                    <Badge variant="neutral">Imported metadata</Badge>
                   )}
-                  {inspection.source === "file" &&
-                    !inspection.native &&
-                    semanticReady && (
-                      <Badge variant="neutral">Imported metadata</Badge>
-                    )}
                 </>
               ) : undefined
             }
@@ -1524,6 +1365,232 @@ export default function App() {
           </div>
         </main>
       </div>
+    </>
+  );
+}
+
+export default function App() {
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    try {
+      return localStorage.getItem("atlas-theme") === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("atlas-theme", theme);
+    } catch {
+      /* Storage is optional. */
+    }
+  }, [theme]);
+
+  const [inspection, setInspection] = useState<FileInspection | null>(null);
+  const [activeFile, setActiveFile] = useState<File | null>(null);
+  // Bumped per successful load so the workspace starts fresh for each file.
+  const [loadKey, setLoadKey] = useState(0);
+  const [loadingFile, setLoadingFile] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileLoadRequestRef = useRef(0);
+  const inspectionAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => inspectionAbortRef.current?.abort(), []);
+
+  const loadDatabase = useCallback(async (file: File) => {
+    const requestId = ++fileLoadRequestRef.current;
+    inspectionAbortRef.current?.abort();
+    const controller = new AbortController();
+    inspectionAbortRef.current = controller;
+    setLoadingFile(true);
+    setError("");
+    try {
+      const result = await inspectDatabase(file, controller.signal);
+      if (requestId !== fileLoadRequestRef.current) return;
+      setInspection(result);
+      setActiveFile(file);
+      setLoadKey((key) => key + 1);
+    } catch (caught) {
+      if (requestId === fileLoadRequestRef.current)
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "This file could not be inspected.",
+        );
+    } finally {
+      if (requestId === fileLoadRequestRef.current) {
+        setLoadingFile(false);
+        setDragging(false);
+      }
+    }
+  }, []);
+
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag(
+    "atlas-sidebar-collapsed",
+    false,
+  );
+  const narrow = useMediaQuery("(max-width: 1080px)");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!narrow) setDrawerOpen(false);
+  }, [narrow]);
+  const drawerWasOpen = useRef(false);
+  useEffect(() => {
+    // Move focus into the drawer, and back to its toggle when it closes.
+    if (drawerOpen) drawerRef.current?.focus();
+    else if (drawerWasOpen.current) sidebarToggleRef.current?.focus();
+    drawerWasOpen.current = drawerOpen;
+  }, [drawerOpen]);
+  const sidebarOpen = narrow ? drawerOpen : !sidebarCollapsed;
+  const toggleSidebar = useCallback(() => {
+    if (window.matchMedia("(max-width: 1080px)").matches)
+      setDrawerOpen((open) => !open);
+    else setSidebarCollapsed((collapsed) => !collapsed);
+  }, [setSidebarCollapsed]);
+  useEffect(() => {
+    if (!inspection) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (
+        event.key !== "[" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (event.target instanceof HTMLElement &&
+          event.target.closest("input, textarea, select, [contenteditable]"))
+      )
+        return;
+      event.preventDefault();
+      toggleSidebar();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [inspection, toggleSidebar]);
+  const sidebar: SidebarChrome = {
+    collapsed: sidebarCollapsed,
+    setCollapsed: setSidebarCollapsed,
+    narrow,
+    drawerOpen,
+    setDrawerOpen,
+    drawerRef,
+  };
+
+  return (
+    <div
+      className="app-shell"
+      data-theme={theme}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (
+          !event.relatedTarget ||
+          !event.currentTarget.contains(event.relatedTarget as Node)
+        )
+          setDragging(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        const file = event.dataTransfer.files[0];
+        if (file) void loadDatabase(file);
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        className="sr-only"
+        type="file"
+        accept=".duckdb,.db,.ddb,application/octet-stream"
+        aria-label="Choose a DuckDB database file"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void loadDatabase(file);
+          event.target.value = "";
+        }}
+      />
+      <header className="topbar">
+        <div className="brand-lockup">
+          {inspection && (
+            <button
+              ref={sidebarToggleRef}
+              type="button"
+              className="sidebar-toggle"
+              aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-expanded={sidebarOpen}
+              title={`${sidebarOpen ? "Hide" : "Show"} sidebar ( [ )`}
+              onClick={toggleSidebar}
+            >
+              {sidebarOpen ? (
+                <PanelLeftClose size={17} />
+              ) : (
+                <PanelLeftOpen size={17} />
+              )}
+            </button>
+          )}
+          <span className="brand-mark">
+            <Database size={20} strokeWidth={1.6} />
+          </span>
+          <strong>File Atlas</strong>
+          <span className="brand-divider" />
+          <span className="brand-subtitle">DuckDB</span>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="theme-toggle"
+            type="button"
+            aria-label={
+              theme === "light"
+                ? "Switch to dark theme"
+                : "Switch to light theme"
+            }
+            onClick={() =>
+              setTheme((value) => (value === "light" ? "dark" : "light"))
+            }
+          >
+            {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
+          </button>
+          {inspection && (
+            <Button
+              className="open-file-button"
+              variant="primary"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loadingFile}
+            >
+              {loadingFile ? (
+                <LoaderCircle className="spin" size={15} />
+              ) : (
+                <Plus size={16} />
+              )}
+              {loadingFile ? "Reading file…" : "Open database"}
+            </Button>
+          )}
+        </div>
+      </header>
+      {inspection ? (
+        <Workspace
+          key={loadKey}
+          inspection={inspection}
+          setInspection={setInspection}
+          activeFile={activeFile}
+          loadingFile={loadingFile}
+          dragging={dragging}
+          error={error}
+          setError={setError}
+          sidebar={sidebar}
+        />
+      ) : (
+        <Landing
+          loading={loadingFile}
+          dragging={dragging}
+          error={error}
+          onDismissError={() => setError("")}
+          onChooseFile={() => fileInputRef.current?.click()}
+        />
+      )}
     </div>
   );
 }
@@ -2302,12 +2369,7 @@ function BlockDetails({
           <span>Byte preview</span>
           <span>64-byte page</span>
         </div>
-        {inspection.source === "demo" ? (
-          <div className="preview-unavailable">
-            <Sparkles size={14} />
-            Illustrative sample has no raw file bytes.
-          </div>
-        ) : (
+        {
           <>
             <div className="byte-page-toolbar">
               <button
@@ -2362,7 +2424,7 @@ function BlockDetails({
               </div>
             )}
           </>
-        )}
+        }
       </div>
     </div>
   );
@@ -2593,11 +2655,9 @@ function SegmentDetails({
       <div className="inspector-note">
         <FileCode2 size={14} />
         <span>
-          {inspection.source === "demo"
-            ? "Example data."
-            : inspection.native
-              ? "String zonemaps may contain truncated bounds. Mixed null counts are not always recorded."
-              : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
+          {inspection.native
+            ? "String zonemaps may contain truncated bounds. Mixed null counts are not always recorded."
+            : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
         </span>
       </div>
     </div>

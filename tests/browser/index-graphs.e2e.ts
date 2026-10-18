@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createDemo } from "../../src/lib/demo";
+import { createSyntheticInspection } from "../fixtures/synthetic-inspection";
 import type {
   FileInspection,
   IndexAllocator,
@@ -69,7 +69,7 @@ function modelIndex(
 }
 /** Same synthetic worker-model boundary as index-stress; no application test hooks. */
 function graphModel(bufferCount = 1000): FileInspection {
-  const inspection = createDemo();
+  const inspection = createSyntheticInspection();
   const wide = Math.floor(bufferCount * 0.6),
     narrow = bufferCount - wide;
   const primary = modelIndex("primary", "large_index", "main.graphs", [
@@ -102,7 +102,6 @@ function graphModel(bufferCount = 1000): FileInspection {
     })),
   ];
   inspection.name = "browser-fixture.duckdb";
-  inspection.source = "file";
   inspection.fileSize = databaseFixture().buffer.length;
   inspection.blockSize = BLOCK_SIZE;
   inspection.segments = [];

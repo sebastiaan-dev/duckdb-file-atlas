@@ -258,10 +258,6 @@ export function applyManifest(
     throw new Error(
       "This file already has a directly decoded checkpoint map; a sidecar cannot replace verified native ranges.",
     );
-  if (inspection.source !== "file")
-    throw new Error(
-      "Semantic manifests can only be applied to a real DuckDB file inspection.",
-    );
   if (inspection.storageVersion !== STORAGE_VERSION) {
     throw new Error(
       `Semantic manifests require storage version ${STORAGE_VERSION}; inspected file is version ${inspection.storageVersion}.`,

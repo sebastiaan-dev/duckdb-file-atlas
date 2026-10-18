@@ -200,15 +200,21 @@ test("detail tooltip follows the measured scale on narrow screens and after resi
   await page.keyboard.press("Enter");
   const detail = page.locator("svg.free-run-bar");
   await expect(detail).toBeFocused();
-  const expectCurrentGroup = async () => {
-    const grouping = Number(await detail.getAttribute("data-blocks-per-tile"));
-    await expect(page.getByRole("tooltip")).toContainText(
-      `Blocks 0–${grouping - 1}`,
-    );
-    await expect(page.getByRole("tooltip")).toContainText(
-      `${grouping} blocks · click to expand`,
-    );
-  };
+  // The tooltip always describes the tile at the current, settled scale;
+  // a resize may re-measure more than once before the layout settles.
+  const expectCurrentGroup = () =>
+    expect
+      .poll(async () => {
+        const grouping = Number(
+          await detail.getAttribute("data-blocks-per-tile"),
+        );
+        const text = await page.getByRole("tooltip").innerText();
+        return (
+          text.includes(`Blocks 0–${grouping - 1}`) &&
+          text.includes(`${grouping} blocks · click to expand`)
+        );
+      })
+      .toBe(true);
   await expectCurrentGroup();
   await page.setViewportSize({ width: 1400, height: 1000 });
   await expect(detail).not.toHaveAttribute("data-blocks-per-tile", "32");

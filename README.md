@@ -16,7 +16,7 @@ The exporter uses a compatible, read-only DuckDB CLI. Sidecars are matched to th
 
 ## Interface
 
-The database summary starts collapsed to a single line (file name, key figures, storage-by-role rail, notes) and expands to the full metrics card; the sidebar collapses to an icon rail with the toolbar button or `[`; both choices are remembered. Below 1080 px the sidebar opens as a drawer. The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and has a **Tile size** slider from 4–24 px, defaulting to compact 8 px squares. Columns adapt to the available width so small tiles reveal the overall file structure rather than stretching to fill a fixed column count. Search dimming, pointer-target highlights, and bounded tooltips remain available. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block. The sample is an illustrative 80 MiB layout with 320 physical blocks and 582 segments; it is not a real database file.
+The database summary starts collapsed to a single line (file name, key figures, storage-by-role rail, notes) and expands to the full metrics card; the sidebar collapses to an icon rail with the toolbar button or `[`; both choices are remembered. Below 1080 px the sidebar opens as a drawer. The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and has a **Tile size** slider from 4–24 px, defaulting to compact 8 px squares. Columns adapt to the available width so small tiles reveal the overall file structure rather than stretching to fill a fixed column count. Search dimming, pointer-target highlights, and bounded tooltips remain available. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block.
 
 The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](https://bklit.com/docs/components/heatmap-chart) to physical block IDs. It does not use calendar dates or add placeholder blocks. The implementation uses the existing React/shadcn stack without a new chart dependency.
 
@@ -33,7 +33,7 @@ bun install
 bun run dev
 ```
 
-The dev server prints a local URL. Open it, then choose a real `.duckdb` file. A demo inspection is available before you select a file.
+The dev server prints a local URL. Open it, then drop a `.duckdb` file on the start screen or click to choose one. Nothing is shown until a real file is opened; the file never leaves the browser.
 
 ## Check and build
 

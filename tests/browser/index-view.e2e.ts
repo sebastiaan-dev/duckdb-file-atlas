@@ -1,10 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { databaseFixture, indexDatabaseFixture } from "./fixture";
 
-test("Indexes has empty help on example and no-index files without logical color controls", async ({
+test("Indexes has empty help on no-index files without logical color controls", async ({
   page,
 }) => {
   await page.goto("/");
+  // No data views until a database is opened.
+  await expect(page.getByRole("tab", { name: "Indexes" })).toHaveCount(0);
+  const open = async () => {
+    await page
+      .getByLabel("Choose a DuckDB database file")
+      .setInputFiles(databaseFixture());
+    await expect(
+      page.getByRole("heading", { name: "browser-fixture.duckdb" }),
+    ).toBeVisible();
+  };
+  await open();
   await page.getByRole("tab", { name: "Indexes", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "No recorded index details" }),
@@ -12,12 +23,8 @@ test("Indexes has empty help on example and no-index files without logical color
   await expect(page.getByLabel("Color segments by")).toHaveCount(0);
   await expect(page.getByLabel("Color blocks by")).toHaveCount(0);
   await page.getByLabel("Search indexes or tables").fill("named_id");
-  await page
-    .getByLabel("Choose a DuckDB database file")
-    .setInputFiles(databaseFixture());
-  await expect(
-    page.getByRole("heading", { name: "browser-fixture.duckdb" }),
-  ).toBeVisible();
+  // Opening a file starts a fresh workspace.
+  await open();
   await page.getByRole("tab", { name: "Indexes", exact: true }).click();
   await expect(page.getByLabel("Search indexes or tables")).toHaveValue("");
   await expect(

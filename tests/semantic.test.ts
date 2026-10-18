@@ -8,7 +8,6 @@ function makeInspection(): FileInspection {
   return {
     name: 'sample.duckdb',
     fileSize: 16_384,
-    source: 'file',
     storageVersion: 69,
     headerFingerprint: fingerprint,
     blockSize: 4096,
@@ -114,7 +113,6 @@ describe('applyManifest', () => {
     expect(() => applyManifest(makeInspection(), makeManifest([], { storageVersion: 68 }))).toThrow(/storageVersion/);
     expect(() => applyManifest(makeInspection(), makeManifest([], { fileSize: 16_383 }))).toThrow(/fileSize/);
     expect(() => applyManifest(makeInspection(), makeManifest([], { headerFingerprint: 'b'.repeat(64) }))).toThrow(/headerFingerprint/);
-    expect(() => applyManifest({ ...makeInspection(), source: 'demo' }, makeManifest())).toThrow(/real DuckDB file/);
   });
 
   test('rejects malformed arrays, unknown fields, duplicate IDs, and unsafe pointers', () => {

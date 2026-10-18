@@ -47,12 +47,12 @@ test("the summary starts collapsed to one line, expands, and remembers the choic
 test("the collapsed notes badge reopens the summary with notes expanded", async ({
   page,
 }) => {
-  // The illustrative example always carries an inspection note.
-  await page.goto("/");
+  // A physical-only fixture always carries a decoding-coverage note.
+  await open(page, databaseFixture(0, true));
   await page.getByRole("button", { name: /^\d+ notes?$/ }).click();
   const notes = page.locator(".inspection-notes");
   await expect(notes).toHaveAttribute("open", "");
-  await expect(notes).toContainText("illustrative");
+  await expect(notes).toContainText("decoding is incomplete");
 });
 
 test("the sidebar collapses to a rail with [ and the toolbar button, and remembers it", async ({

@@ -171,7 +171,6 @@ export interface FileInspection {
   freeList?: FreeListState;
   name: string;
   fileSize: number;
-  source: "demo" | "file";
   storageVersion: number;
   headerFingerprint?: string;
   native?: {
