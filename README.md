@@ -53,6 +53,47 @@ bun run test:browser
 
 These tests also run in CI. They generate local database fixtures and require no DuckDB executable. See [the browser-test notes](tests/browser/README.md) for details.
 
+## Generate a realistic churn dataset
+
+```sh
+bun run generate:churn
+# Or select a compatible CLI and a new destination:
+bun run generate:churn --duckdb /path/to/duckdb --out .cache/my-sf2-run
+```
+
+The default workload generates **TPC-H SF2** and saves six independently
+openable, checkpointed snapshots in `.cache/tpch-sf2-churn/`:
+
+1. `01-tpch.duckdb` — baseline, no indexes.
+2. `02-indexed.duckdb` — five numeric, composite, and string ART indexes.
+3. `03-deleted.duckdb` — delete about 40% of orders and their lineitems.
+4. `04-refilled-updated.duckdb` — restore some deleted keys, append new keys,
+   and update indexed columns and string payloads.
+5. `05-additions.duckdb` — add 400,000 synthetic events with duplicate keys,
+   nulls, long strings, three indexes, and a disposable staging table.
+6. `06-index-and-table-churn.duckdb` — drop staging and indexes, delete most
+   events, checkpoint, insert fresh events, and rebuild/change indexes.
+
+Start with the final file, then compare snapshots 2 and 3 for ART occupancy
+and deletion effects. This is a visualization workload, not a valid TPC-H
+benchmark after mutation. Exact physical placement depends on the engine and
+thread scheduling.
+
+The script requires a CLI supporting `STORAGE_VERSION 'v2.0.0'` and installs
+and loads the `tpch` extension. It defaults to `DUCKDB_BIN`, the locally installed
+`~/.duckdb/cli/latest/duckdb`, or `duckdb` on PATH; memory and threads default
+to 4 GB and 4. Use `--sf 0.01 --out .cache/churn-smoke` for a small smoke run,
+or `--help` for all options. Allow several GiB of space for the SF2 snapshots.
+
+It refuses to overwrite an existing output directory and copies each snapshot
+only after the writer exits and no nonempty WAL remains. Snapshot copies use
+copy-on-write when available. Each output directory includes the SQL, logs,
+a walkthrough, and `manifest.json` with actual table counts, index definitions,
+engine provenance, and the visualizer's decoding status. Valid DuckDB files
+are kept even if the visualizer cannot decode them; check the manifest for
+those limitations. A failed generation leaves `complete: false` and preserves
+the working database for diagnosis.
+
 ## Make a demo database
 
 Use the same source-built DuckDB executable that supports storage version 69:
