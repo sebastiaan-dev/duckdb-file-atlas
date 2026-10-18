@@ -1,5 +1,5 @@
 import { InfoTip } from "@/components/detail-tooltip";
-import { FreeRunChart } from "@/components/free-run-chart";
+import { FreeRunChart, type FreeRunOrder } from "@/components/free-run-chart";
 import { memo, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,37 @@ const bytes = (value: number) =>
     : value < 1024 ** 2
       ? `${(value / 1024).toFixed(1)} KiB`
       : `${(value / 1024 ** 2).toFixed(1)} MiB`;
+type ChainNode = NonNullable<FileInspection["freeList"]>["chain"][number];
+/** Collapse consecutive slots of one metadata block into a single chain step. */
+function groupChain(chain: ChainNode[]) {
+  const groups: {
+    blockId: number;
+    first: number;
+    last: number;
+    count: number;
+    position: number;
+  }[] = [];
+  chain.forEach((node, index) => {
+    const previous = groups.at(-1);
+    if (
+      previous &&
+      previous.blockId === node.blockId &&
+      node.slot === previous.last + 1
+    ) {
+      previous.last = node.slot;
+      previous.count++;
+    } else
+      groups.push({
+        blockId: node.blockId,
+        first: node.slot,
+        last: node.slot,
+        count: 1,
+        position: index + 1,
+      });
+  });
+  return groups;
+}
+
 export const FreeListView = memo(function FreeListView({
   inspection,
   query,
@@ -36,8 +67,19 @@ export const FreeListView = memo(function FreeListView({
   const state = inspection.freeList;
   const runs = useMemo(() => (state ? buildFreeRuns(state) : []), [state]);
   const filtered = useMemo(() => filterFreeRuns(runs, query), [runs, query]);
+  const [order, setOrder] = useState<FreeRunOrder>("position");
+  const ordered = useMemo(
+    () =>
+      order === "size"
+        ? filtered
+            .slice()
+            .sort((a, b) => b.count - a.count || a.start - b.start)
+        : filtered,
+    [filtered, order],
+  );
+  const chain = useMemo(() => groupChain(state?.chain ?? []), [state?.chain]);
   const layout = useContinuousLayout(
-    filtered,
+    ordered,
     inspection.blocks.length > LARGE_BLOCK_COUNT + 3,
     512,
   );
@@ -139,7 +181,10 @@ export const FreeListView = memo(function FreeListView({
         {filtered.length > 0 && (
           <FreeRunChart
             key={inspection.headerFingerprint ?? inspection.name}
-            runs={filtered.slice(0, layout.visibleCount)}
+            runs={ordered.slice(0, layout.visibleCount)}
+            allRuns={filtered}
+            order={order}
+            onOrderChange={setOrder}
             largest={largest}
             totalBlocks={totalBlocks}
             blockSize={inspection.blockSize}
@@ -177,18 +222,22 @@ export const FreeListView = memo(function FreeListView({
           <Button variant="secondary" size="sm" onClick={onCheckpoint}>
             Checkpoint {state.checkpoint}
           </Button>
-          {state.chain.map((node, index) => (
+          {chain.map((group) => (
             <span
               className="free-chain-node"
-              key={`${node.blockId}:${node.slot}`}
+              key={`${group.blockId}:${group.first}`}
             >
               <ArrowRight size={12} />
               <button
-                onClick={() => onPick(node.blockId)}
-                title={`Free-list chain position ${index + 1}; ${node.next ? `next block ${node.next.blockId}, slot ${node.next.slot}` : "end of chain"}`}
+                onClick={() => onPick(group.blockId)}
+                title={`Free-list chain positions ${group.position}–${group.position + group.count - 1}: ${group.count} consecutive metadata slot${group.count === 1 ? "" : "s"} in block ${group.blockId}`}
               >
-                Block {node.blockId}
-                <small>slot {node.slot}</small>
+                Block {group.blockId}
+                <small>
+                  {group.count === 1
+                    ? `slot ${group.first}`
+                    : `slots ${group.first}–${group.last}`}
+                </small>
               </button>
             </span>
           ))}
@@ -214,12 +263,12 @@ export const FreeListView = memo(function FreeListView({
         </h3>
         <div className="free-slot-legend">
           <span>
-            <i />
-            Allocated
+            <i className="is-free" />
+            Free slot
           </span>
           <span>
-            <i className="is-free" />
-            Free
+            <i />
+            Allocated
           </span>
         </div>
         {state.metadata.slice(0, metadataLayout.visibleCount).map((block) => (
@@ -264,10 +313,18 @@ export const FreeListView = memo(function FreeListView({
         onToggle={(event) => setShowShared(event.currentTarget.open)}
       >
         <summary>
-          Shared blocks{" "}
+          Multi-use blocks{" "}
           <small>
             {state.complete ? count(state.multiUseBlocks.length) : "Unknown"}
           </small>
+          <InfoTip label="About multi-use blocks">
+            <p>
+              Blocks the checkpoint records as referenced more than once, such
+              as metadata blocks whose slots several structures share. DuckDB
+              keeps a reference count so a block is only freed when every
+              reference is gone.
+            </p>
+          </InfoTip>
         </summary>
         <div className="shared-block-list">
           {showShared &&

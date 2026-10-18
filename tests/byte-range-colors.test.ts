@@ -129,3 +129,37 @@ test("whole reusable blocks are distinct from gaps inside allocated blocks", () 
     ).label,
   ).toBe("Checksum");
 });
+
+test("role mode colors index ranges like the Indexes view's node-type legend", () => {
+  const indexBlock: FileBlock = { ...block, role: "index" };
+  const node = byteRangeAppearance(
+    { ...range, kind: "index", nodeType: "NODE16", indexId: "i" },
+    indexBlock,
+    "role",
+  );
+  expect(node).toEqual({
+    label: "NODE16 nodes",
+    background: "var(--node-node16)",
+  });
+  expect(
+    byteRangeAppearance(
+      { ...range, kind: "index", nodeType: "PREFIX", indexMask: true },
+      indexBlock,
+      "role",
+    ).background,
+  ).toBe("var(--index-mask)");
+  const hole = byteRangeAppearance(
+    { ...range, kind: "unused", nodeType: "PREFIX", indexId: "i" },
+    indexBlock,
+    "role",
+  );
+  expect(hole.label).toBe("Free PREFIX slots");
+  // Other color modes keep their ownership semantics.
+  expect(
+    byteRangeAppearance(
+      { ...range, kind: "index", nodeType: "NODE16" },
+      indexBlock,
+      "compression",
+    ).label,
+  ).toBe("Unknown compression (index nodes)");
+});

@@ -28,21 +28,25 @@ async function barWidths(page: Page) {
     );
 }
 
-test("overview positions runs on the file axis and offers a fixed-scale size comparison", async ({
+test("a file-position strip locates runs; the list compares lengths and can be ordered by size", async ({
   page,
 }) => {
   await openRuns(page);
   const overview = page.locator(".free-run-overview");
   await expect(overview).toHaveAttribute("data-mode", "position");
-  await expect(overview).toHaveAttribute("data-scale-max", "66");
+  const strip = page.locator(".free-run-strip");
+  await expect(strip).toHaveAttribute("data-scale-max", "66");
   await expect(overview.getByText("Block ID · full file")).toBeVisible();
-  const starts = await overview
-    .locator(".free-run-overview-bar")
-    .evaluateAll((bars) =>
-      bars.map((bar) => parseFloat((bar as HTMLElement).style.left)),
+  const starts = await strip
+    .locator(".free-run-strip-run")
+    .evaluateAll((runs) =>
+      runs.map((run) => parseFloat((run as HTMLElement).style.left)),
     );
   for (const [i, id] of [1, 20, 40, 60].entries())
     expect(starts[i]).toBeCloseTo((id / 66) * 100, 4);
+  // Length rows share one fixed scale: the largest run.
+  await expect(overview).toHaveAttribute("data-scale-max", "12");
+  await expect(overview.getByText("Run length (blocks)")).toBeVisible();
   const bars = page.locator(".free-run-overview-target");
   await expect(bars).toHaveCount(4);
   expect(
@@ -61,14 +65,24 @@ test("overview positions runs on the file axis and offers a fixed-scale size com
     page.getByRole("button", { name: "Zoom in free runs" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Size", exact: true }).click();
-  await expect(overview).toHaveAttribute("data-scale-max", "12");
-  await expect(overview.getByText("Run length (blocks)")).toBeVisible();
+  await expect(overview).toHaveAttribute("data-mode", "size");
   await expect(overview.locator(".free-run-overview-count")).toHaveText([
     "12",
     "6",
-    "1",
     "6",
+    "1",
   ]);
+  // Ties keep file order; the strip never reorders.
+  expect(
+    await bars.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-run-start")),
+    ),
+  ).toEqual(["1", "20", "60", "40"]);
+  await page.locator('.free-run-strip-run[data-run-start="40"]').click();
+  await expect(page.locator("svg.free-run-bar")).toHaveAttribute(
+    "data-run-start",
+    "40",
+  );
 });
 
 test("provenance filtering retains the full-file scale rather than stretching the remaining run", async ({
@@ -80,10 +94,15 @@ test("provenance filtering retains the full-file scale rather than stretching th
     .getByRole("textbox", { name: "Search free block IDs" })
     .fill("implicit");
   await expect(page.locator(".free-run-overview-target")).toHaveCount(1);
-  await expect(page.locator(".free-run-overview")).toHaveAttribute(
+  await expect(page.locator(".free-run-strip")).toHaveAttribute(
     "data-scale-max",
     "66",
   );
+  await expect(page.locator(".free-run-overview")).toHaveAttribute(
+    "data-scale-max",
+    "12",
+  );
+  await expect(page.locator(".free-run-strip-run")).toHaveCount(1);
   const after = await barWidths(page);
   expect(after[0]).toBeCloseTo(before[3], 1);
   await expect(page.locator(".free-run-overview-target")).toHaveAttribute(
@@ -116,12 +135,22 @@ test("hover and keyboard focus expose range, count, bytes and provenance; Enter 
   await expect(
     page.getByRole("button", { name: "Zoom in free runs" }),
   ).toBeVisible();
+  // The keyboard tile hint sits below the strip, never over the Back button.
+  const back = (await page
+    .getByRole("button", { name: "Back to run overview" })
+    .boundingBox())!;
+  const hint = (await page.getByRole("tooltip").boundingBox())!;
+  expect(hint.y).toBeGreaterThan(back.y + back.height);
   await page.getByRole("button", { name: "Back to run overview" }).click();
   await expect(run).toBeFocused();
-  const implicit = page.locator(
-    '.free-run-overview-target[data-run-start="60"]',
-  );
-  await implicit.focus();
+  // Focus restored after a pointer gesture does not pop a stale tooltip…
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  // …but keyboard navigation does.
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(
+    page.locator('.free-run-overview-target[data-run-start="60"]'),
+  ).toBeFocused();
   await expect(page.getByRole("tooltip")).toContainText(
     "Outside checkpoint extent (implicit)",
   );
@@ -140,7 +169,7 @@ test("numeric search reveals its exact block in detail without stealing input fo
   await detail.focus();
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Block 0024", exact: true }),
+    page.getByRole("heading", { name: "Block 24", exact: true }),
   ).toBeVisible();
 });
 
@@ -167,7 +196,8 @@ test("detail tooltip follows the measured scale on narrow screens and after resi
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openRuns(page, databaseFixture());
-  await page.locator(".free-run-overview-target").click();
+  await page.locator(".free-run-overview-target").focus();
+  await page.keyboard.press("Enter");
   const detail = page.locator("svg.free-run-bar");
   await expect(detail).toBeFocused();
   const expectCurrentGroup = async () => {
@@ -209,11 +239,11 @@ test("a one-block run still drills before inspecting and fits a narrow viewport 
   }
   await run.click();
   await expect(
-    page.getByRole("heading", { name: "Block 0000", exact: true }),
+    page.getByRole("heading", { name: "Block 0", exact: true }),
   ).toHaveCount(0);
   await page.locator("svg.free-run-bar").press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Block 0000", exact: true }),
+    page.getByRole("heading", { name: "Block 0", exact: true }),
   ).toBeVisible();
 });
 
@@ -264,7 +294,11 @@ test("100,000 blocks use one continuous overview bar and constant-size patterned
     await run.click();
     const detail = page.locator("svg.free-run-bar");
     await expect(detail.locator("pattern")).toHaveCount(1);
-    await expect(detail.locator("rect")).toHaveCount(3);
+    // A pointer drill focuses Back, so no tile is highlighted yet.
+    await expect(
+      page.getByRole("button", { name: "Back to run overview" }),
+    ).toBeFocused();
+    await expect(detail.locator("rect")).toHaveCount(2);
     while (
       await page.getByRole("button", { name: "Zoom in free runs" }).isEnabled()
     )

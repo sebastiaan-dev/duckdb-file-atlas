@@ -45,8 +45,14 @@ function HeatmapTooltip({
   tooltipId: string;
 }) {
   const owners = [
-    ...new Set(segments.map((segment) => `${segment.table}.${segment.column}`)),
+    ...new Set([
+      ...segments.map((segment) => `${segment.table}.${segment.column}`),
+      ...(block.indexOwners ?? []).map(
+        (index) => `${index.name} (${index.table})`,
+      ),
+    ]),
   ];
+  const free = block.role === "free";
   return (
     <Tooltip.Portal>
       <Tooltip.Content
@@ -70,27 +76,36 @@ function HeatmapTooltip({
           <div>
             <dt>Space used</dt>
             <dd>
-              {block.usedBytes == null || block.size <= 0
-                ? "Unknown"
-                : `${bytes(block.usedBytes)} · ${((block.usedBytes / block.size) * 100).toFixed(1)}%`}
+              {free
+                ? "None"
+                : block.usedBytes == null || block.size <= 0
+                  ? "Unknown"
+                  : `${bytes(block.usedBytes)} · ${((block.usedBytes / block.size) * 100).toFixed(1)}%`}
             </dd>
           </div>
-          <div>
-            <dt>Internal free</dt>
-            <dd>
-              {internalFreeBytes(block) == null
-                ? "Unmeasured"
-                : bytes(internalFreeBytes(block)!)}
-            </dd>
-          </div>
+          {free ? (
+            <div>
+              <dt>Reusable</dt>
+              <dd>{bytes(block.size)}</dd>
+            </div>
+          ) : (
+            <div>
+              <dt>Internal free</dt>
+              <dd>
+                {internalFreeBytes(block) == null
+                  ? "Unknown"
+                  : bytes(internalFreeBytes(block)!)}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Owners</dt>
             <dd>
               {owners.length
                 ? owners.slice(0, 3).join(", ") +
                   (owners.length > 3 ? ` +${owners.length - 3} more` : "")
-                : block.role === "free"
-                  ? "Unallocated"
+                : free
+                  ? "None · free block"
                   : "Unknown"}
             </dd>
           </div>

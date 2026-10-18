@@ -56,7 +56,7 @@ test("pointer focus does not move a scrolled free-run tile before hit testing", 
   await expect(page.getByRole("tooltip")).toContainText("Block 60");
   await page.mouse.click(box.x + 604, box.y + 7);
   await expect(
-    page.getByRole("heading", { name: "Block 0060", exact: true }),
+    page.getByRole("heading", { name: "Block 60", exact: true }),
   ).toBeVisible();
   await expectPreview(page, DATA_START + 60 * 16384);
 });
@@ -74,7 +74,7 @@ test.describe("touch input", () => {
     const box = (await bar.boundingBox())!;
     await page.touchscreen.tap(box.x + 604, box.y + 7);
     await expect(
-      page.getByRole("heading", { name: "Block 0060", exact: true }),
+      page.getByRole("heading", { name: "Block 60", exact: true }),
     ).toBeVisible();
   });
 });
@@ -112,7 +112,7 @@ test("keyboard focus reveals the active tile and arrow/Home/End navigation still
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Block 0001", exact: true }),
+    page.getByRole("heading", { name: "Block 1", exact: true }),
   ).toBeVisible();
 });
 
@@ -135,7 +135,7 @@ test("grouped pointer tiles expand at the clicked group and retain keyboard acti
   await expect(bar).toHaveAttribute("aria-label", /Block 40\./);
   await page.keyboard.press("Space");
   await expect(
-    page.getByRole("heading", { name: "Block 0040", exact: true }),
+    page.getByRole("heading", { name: "Block 40", exact: true }),
   ).toBeVisible();
 });
 

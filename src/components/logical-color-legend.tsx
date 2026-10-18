@@ -82,6 +82,9 @@ export function LogicalColorLegend({
               </span>
             </>
           )}
+          {mode === "bytes-per-row" && (
+            <span className="logical-legend-note">Log scale</span>
+          )}
           {mode === "null-fraction" && (
             <span className="logical-legend-note">
               Exact counts or confirmed all/none only

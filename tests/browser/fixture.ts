@@ -124,7 +124,22 @@ export function multiRunFixture() {
   return file;
 }
 
-export function manifestFixture() {
+export interface ManifestSegment {
+  id: string;
+  table: string;
+  column: string;
+  columnType: string;
+  rowGroup: number;
+  blockId: number;
+  offset: number;
+  byteSize: number;
+  rowStart: number;
+  rowCount: number;
+  compression: string;
+}
+
+/** A semantic sidecar matching `databaseFixture(0, true)`. */
+export function manifestFor(segments: ManifestSegment[]) {
   const file = databaseFixture(0, true);
   return {
     name: "browser-manifest.json",
@@ -137,20 +152,26 @@ export function manifestFixture() {
         headerFingerprint: createHash("sha256")
           .update(file.buffer.subarray(0, DATA_START))
           .digest("hex"),
-        segments: [0, 1].map((index) => ({
-          id: `segment-${index}`,
-          table: "main.example",
-          column: `value${index}`,
-          columnType: "INTEGER",
-          rowGroup: 0,
-          blockId: 0,
-          offset: 128 + index * 128,
-          byteSize: 128,
-          rowStart: 0,
-          rowCount: 32,
-          compression: "Uncompressed",
-        })),
+        segments,
       }),
     ),
   };
+}
+
+export function manifestFixture() {
+  return manifestFor(
+    [0, 1].map((index) => ({
+      id: `segment-${index}`,
+      table: "main.example",
+      column: `value${index}`,
+      columnType: "INTEGER",
+      rowGroup: 0,
+      blockId: 0,
+      offset: 128 + index * 128,
+      byteSize: 128,
+      rowStart: 0,
+      rowCount: 32,
+      compression: "Uncompressed",
+    })),
+  );
 }

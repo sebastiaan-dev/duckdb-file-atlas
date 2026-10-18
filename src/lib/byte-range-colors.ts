@@ -5,6 +5,7 @@ import {
   tablePalette,
   roleColors,
 } from "./palette";
+import { nodeTypeColor } from "./index-layout";
 import type {
   ByteRange,
   ColorMode,
@@ -43,6 +44,19 @@ export function byteRangeAppearance(
   const owned = ["segment", "validity", "dictionary", "index"].includes(
     range.kind,
   );
+  if (mode === "role" && range.kind === "index" && range.nodeType)
+    return range.indexMask
+      ? { label: "Index free-slot mask", background: "var(--index-mask)" }
+      : {
+          label: `${range.nodeType} nodes`,
+          background: nodeTypeColor({ nodeType: range.nodeType, ordinal: 0 }),
+        };
+  if (mode === "role" && range.kind === "unused" && range.nodeType)
+    return {
+      label: `Free ${range.nodeType} slots`,
+      background:
+        "repeating-linear-gradient(135deg, var(--index-free-a) 0 3px, var(--index-free-b) 3px 6px)",
+    };
   if (mode === "role" || !owned) return kinds[range.kind];
   if (mode === "utilization" || mode === "fragmentation")
     return {

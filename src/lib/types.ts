@@ -22,6 +22,10 @@ export interface ByteRange {
     | "unknown";
   segmentId?: string;
   indexId?: string;
+  /** ART allocator node type for index ranges, e.g. `NODE16`. */
+  nodeType?: string;
+  /** True for an allocator's free-slot bitmask rather than node slots. */
+  indexMask?: boolean;
 }
 export interface FileBlock {
   id: number;

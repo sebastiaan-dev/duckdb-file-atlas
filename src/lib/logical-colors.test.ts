@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildLogicalMetrics,
   bytesPerRow,
+  bytesPerRowPosition,
   columnKey,
   logicalAppearance,
   nullFraction,
@@ -253,4 +254,12 @@ describe("logical color measurements", () => {
         .background,
     ).not.toContain("NaN");
   });
+});
+
+it("bytes-per-row uses a log ramp so typical segments are not washed out", () => {
+  expect(bytesPerRowPosition(0, 369)).toBe(0);
+  expect(bytesPerRowPosition(369, 369)).toBe(1);
+  // 4 B/row against a 369 B/row outlier is clearly visible, not ~1%.
+  expect(bytesPerRowPosition(4, 369)).toBeGreaterThan(0.25);
+  expect(bytesPerRowPosition(5, 0)).toBe(0);
 });

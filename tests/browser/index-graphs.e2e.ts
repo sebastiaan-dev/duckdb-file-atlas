@@ -155,6 +155,13 @@ async function openGraphs(page: Page, bufferCount = 1000) {
 }
 const row = (page: Page, name: string) =>
   page.locator(".index-comparison-row").filter({ hasText: name });
+/** Rows are ordered largest first, so small indexes may sit behind paging. */
+async function revealRow(page: Page, name: string) {
+  const more = page.getByRole("button", { name: "Load more indexes" });
+  while ((await row(page, name).count()) === 0 && (await more.count()) > 0)
+    await more.click();
+  await expect(row(page, name)).toHaveCount(1);
+}
 
 test("graphs link index selection, ranked metrics, allocator filtering and a stable full-file baseline", async ({
   page,
@@ -167,6 +174,10 @@ test("graphs link index selection, ranked metrics, allocator filtering and a sta
   await expect(page.locator(".index-selected-heading h3")).toHaveText(
     "large_index",
   );
+  // Comparison rows are ordered largest first.
+  await expect(page.locator(".index-comparison-row").first()).toContainText(
+    "large_index",
+  );
   await expect(page.locator(".index-allocator-row")).toHaveCount(2);
   await expect(page.locator(".index-allocator-row").first()).toContainText(
     "WIDE",
@@ -175,6 +186,7 @@ test("graphs link index selection, ranked metrics, allocator filtering and a sta
     .locator(".index-comparison")
     .getAttribute("data-axis-max");
   const totals = await page.locator(".index-metrics").innerText();
+  await revealRow(page, "tiny_index");
   const tinyWidth = await row(page, "tiny_index")
     .locator(".index-stack")
     .evaluate((node) => (node as HTMLElement).style.width);
@@ -280,6 +292,8 @@ test("known zero stays selectable and partial catalog data never becomes measure
   page,
 }) => {
   await openGraphs(page);
+  await revealRow(page, "empty_index");
+  await revealRow(page, "partial_index");
   await row(page, "empty_index").click();
   await expect(row(page, "empty_index")).toContainText("0 B");
   await expect(row(page, "empty_index")).toContainText("Empty / inlined");
@@ -313,9 +327,7 @@ test("buffer keyboard navigation, one reusable tooltip, touch picking, and file 
   const tiles = page.locator(".index-buffer-tile");
   await expect(page.locator(".index-buffer-tile[tabindex='0']")).toHaveCount(1);
   await tiles.first().focus();
-  await expect(page.getByRole("tooltip")).toContainText(
-    "/ 4 slots",
-  );
+  await expect(page.getByRole("tooltip")).toContainText("/ 4 slots");
   await tiles.first().press("ArrowRight");
   await expect(tiles.nth(1)).toBeFocused();
   await page.setViewportSize({ width: 1300, height: 1000 });
@@ -347,6 +359,7 @@ test("buffer keyboard navigation, one reusable tooltip, touch picking, and file 
   await expect(page.getByRole("tooltip")).toHaveCount(1);
   await tiles.nth(1).tap();
   await expect(tiles.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await revealRow(page, "tiny_index");
   await row(page, "tiny_index").click();
   await page
     .getByLabel("Choose a DuckDB database file")

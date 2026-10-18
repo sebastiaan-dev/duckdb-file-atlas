@@ -67,7 +67,7 @@ test("slider supports all pixel sizes and resizing preserves block selection, by
   await openMap(page);
   await page.locator('[data-block-id="65"]').click();
   await expect(
-    page.getByRole("heading", { name: "Block 0065", exact: true }),
+    page.getByRole("heading", { name: "Block 65", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("64 byte hexadecimal preview")).toBeVisible();
   await page.getByRole("button", { name: "Next 64 bytes" }).click();
@@ -97,12 +97,13 @@ test("slider supports all pixel sizes and resizing preserves block selection, by
   }
 });
 
-test("inset slider fill and marker follow its value, with visible keyboard focus in both themes", async ({
+test("visible slider follows its value with a stable readout and keyboard focus in both themes", async ({
   page,
 }) => {
   await openMap(page);
   const slider = page.getByRole("slider", { name: "Block tile size" });
   const control = page.locator(".tile-size-control");
+  const initial = (await slider.boundingBox())!;
   for (const theme of ["light", "dark"]) {
     await page
       .locator(".app-shell")
@@ -114,20 +115,20 @@ test("inset slider fill and marker follow its value, with visible keyboard focus
     ] as const) {
       await slider.press(key);
       await expect(slider).toHaveValue(String(size));
-      const style = await control.evaluate((node) => ({
-        width: node.clientWidth,
-        fill: parseFloat(getComputedStyle(node, "::before").width),
-        marker: parseFloat(getComputedStyle(node, "::after").left),
-        outline: getComputedStyle(node).outlineStyle,
-      }));
-      expect(style.fill).toBeCloseTo((style.width * (size - 4)) / 20, 1);
-      expect(style.marker).toBeGreaterThanOrEqual(0);
-      expect(style.marker).toBeLessThan(style.width - 2);
-      expect(style.outline).toBe("solid");
+      await expect(control.locator("output")).toHaveText(`${size} px`);
+      // The readout width never moves the track under the pointer.
+      const box = (await slider.boundingBox())!;
+      expect(box.x).toBeCloseTo(initial.x, 0);
+      expect(box.width).toBeCloseTo(initial.width, 0);
+      expect(
+        await control.evaluate((node) => getComputedStyle(node).outlineStyle),
+      ).toBe("solid");
+      expect(
+        await slider.evaluate((node) => getComputedStyle(node).opacity),
+      ).toBe("1");
     }
   }
   await expect(control.locator("span")).toHaveText("Tile size");
-  await expect(control.locator("output")).toHaveText("24 px");
 });
 
 test("the full inset control accepts pointer input and updates the map", async ({
@@ -221,6 +222,6 @@ test("changing tile size dismisses stale tooltip anchors, and pointer inspection
   await expect(page.getByRole("tooltip")).toContainText("Block 100");
   await page.locator('[data-block-id="100"]').click();
   await expect(
-    page.getByRole("heading", { name: "Block 0100", exact: true }),
+    page.getByRole("heading", { name: "Block 100", exact: true }),
   ).toBeVisible();
 });

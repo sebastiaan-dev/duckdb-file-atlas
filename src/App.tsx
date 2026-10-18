@@ -65,6 +65,8 @@ import {
   stableColor,
 } from "@/lib/palette";
 import { createDemo } from "@/lib/demo";
+import { decodeMetaPointer } from "@/lib/meta-pointer";
+import { describeStatistics } from "@/lib/segment-stats";
 import { readBytes } from "@/lib/reader";
 import { inspectDatabase } from "@/lib/open-database";
 import { applyManifest } from "@/lib/semantic";
@@ -129,6 +131,51 @@ function HeaderIcon({ mode }: { mode: ViewMode }) {
   );
 }
 
+function InspectorEmptyState({ view }: { view: ViewMode }) {
+  return (
+    <div className="detail-content inspector-empty">
+      <p>
+        {view === "logical"
+          ? "Select a segment to see its column, statistics and physical block."
+          : view === "indexes"
+            ? "Select an index buffer to inspect the block that stores it."
+            : view === "free-list"
+              ? "Select a free block or allocator block to inspect it."
+              : "Select a block to see its owners, byte layout and raw bytes."}
+      </p>
+      <dl>
+        <div>
+          <dt>
+            <kbd>←</kbd>
+            <kbd>→</kbd>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd>
+          </dt>
+          <dd>Move between blocks</dd>
+        </div>
+        <div>
+          <dt>
+            <kbd>Enter</kbd>
+          </dt>
+          <dd>Inspect</dd>
+        </div>
+        <div>
+          <dt>
+            <kbd>Esc</kbd>
+          </dt>
+          <dd>Clear selection</dd>
+        </div>
+        <div>
+          <dt>
+            <kbd>⌘ K</kbd>
+          </dt>
+          <dd>Search</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 function DetailPair({
   label,
   value,
@@ -146,21 +193,49 @@ function DetailPair({
   );
 }
 
+function checkpointStatus(checkpoint: CheckpointHeader, activeSlot: 1 | 2) {
+  if (!checkpoint.valid) return { label: "Invalid", tone: "invalid" } as const;
+  return checkpoint.slot === activeSlot
+    ? ({ label: "Active", tone: "active" } as const)
+    : ({ label: "Previous", tone: "previous" } as const);
+}
+
+/** Shared schema prefixes (e.g. every table in `main`) are noise in lists. */
+function commonSchemaPrefix(names: string[]) {
+  if (!names.length) return "";
+  const schemas = new Set(
+    names.map((name) => (name.includes(".") ? name.split(".")[0] : "")),
+  );
+  const [schema] = [...schemas];
+  return schemas.size === 1 && schema ? `${schema}.` : "";
+}
+
 function CheckpointCard({
   checkpoint,
-  active,
+  activeSlot,
+  selected,
   onClick,
 }: {
   checkpoint: CheckpointHeader;
-  active: boolean;
+  activeSlot: 1 | 2;
+  selected: boolean;
   onClick: () => void;
 }) {
+  const status = checkpointStatus(checkpoint, activeSlot);
   return (
     <button
       type="button"
-      className={`checkpoint-card ${active ? "selected" : ""}`}
+      className={`checkpoint-card ${selected ? "selected" : ""}`}
+      data-status={status.tone}
       onClick={onClick}
-      aria-pressed={active}
+      aria-pressed={selected}
+      title={
+        status.tone === "active"
+          ? "The database reads this checkpoint"
+          : status.tone === "previous"
+            ? "Older checkpoint kept for crash recovery"
+            : "This header failed validation"
+      }
     >
       <span className="checkpoint-indicator" />
       <span className="checkpoint-copy">
@@ -171,8 +246,8 @@ function CheckpointCard({
             : "Invalid snapshot"}
         </span>
       </span>
-      <span className={`checkpoint-state ${checkpoint.valid ? "valid" : ""}`}>
-        {checkpoint.valid ? "Valid" : "Invalid"}
+      <span className={`checkpoint-state is-${status.tone}`}>
+        {status.label}
       </span>
     </button>
   );
@@ -195,6 +270,7 @@ export default function App() {
     useState<LogicalColorMode>("compression");
   const [valueColumnKey, setValueColumnKey] = useState("");
   const [cellSize, setCellSize] = useState(8);
+  const [showValidity, setShowValidity] = useState(true);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
@@ -205,6 +281,9 @@ export default function App() {
     null,
   );
   const [hoveredBlockId, setHoveredBlockId] = useState<number | null>(null);
+  const [pendingTableScroll, setPendingTableScroll] = useState<string | null>(
+    null,
+  );
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [byteView, setByteView] = useState<ByteView>(null);
   const [loadingFile, setLoadingFile] = useState(false);
@@ -267,24 +346,54 @@ export default function App() {
       })),
     [inspection.blocks],
   );
+  // An exact table name (e.g. from the sidebar) selects only that table, so
+  // `main.part` does not also match `main.partsupp`.
+  const exactTable = useMemo(() => {
+    const term = deferredQuery.trim().toLocaleLowerCase();
+    const names = new Set(
+      [
+        ...(inspection.native?.catalog ?? []).map((table) => table.name),
+        ...inspection.segments.map((segment) => segment.table),
+      ].map((name) => name.toLocaleLowerCase()),
+    );
+    return names.has(term) ? term : null;
+  }, [deferredQuery, inspection.native, inspection.segments]);
+  const segmentMatches = useCallback(
+    (entry: { segment: Segment; text: string }, term: string) =>
+      exactTable
+        ? entry.segment.table.toLocaleLowerCase() === exactTable
+        : entry.text.includes(term),
+    [exactTable],
+  );
   const matchingBlocks = useMemo(() => {
     const term = deferredQuery.trim().toLocaleLowerCase();
     if (!term) return inspection.blocks;
     const matchingSegmentBlocks = new Set(
       segmentSearch
         .filter(
-          (entry) => entry.segment.blockId >= 0 && entry.text.includes(term),
+          (entry) => entry.segment.blockId >= 0 && segmentMatches(entry, term),
         )
         .map((entry) => entry.segment.blockId),
     );
     return blockSearch
       .filter(
         (entry) =>
-          entry.text.includes(term) ||
+          (exactTable
+            ? (entry.block.indexOwners ?? []).some(
+                (index) => index.table.toLocaleLowerCase() === exactTable,
+              )
+            : entry.text.includes(term)) ||
           matchingSegmentBlocks.has(entry.block.id),
       )
       .map((entry) => entry.block);
-  }, [inspection.blocks, segmentSearch, blockSearch, deferredQuery]);
+  }, [
+    inspection.blocks,
+    segmentSearch,
+    blockSearch,
+    deferredQuery,
+    exactTable,
+    segmentMatches,
+  ]);
   const matchingBlockIds = useMemo(
     () => new Set(matchingBlocks.map((block) => block.id)),
     [matchingBlocks],
@@ -303,10 +412,10 @@ export default function App() {
     const term = deferredQuery.trim().toLocaleLowerCase();
     return term
       ? segmentSearch
-          .filter((entry) => entry.text.includes(term))
+          .filter((entry) => segmentMatches(entry, term))
           .map((entry) => entry.segment)
       : inspection.segments;
-  }, [inspection.segments, segmentSearch, deferredQuery]);
+  }, [inspection.segments, segmentSearch, deferredQuery, segmentMatches]);
   const dataBlocks = useMemo(
     () =>
       inspection.blocks
@@ -319,9 +428,22 @@ export default function App() {
     () => inspection.blocks.filter((block) => block.role === "header"),
     [inspection.blocks],
   );
+  const logicalSegments = useMemo(
+    () =>
+      showValidity
+        ? filteredSegments
+        : filteredSegments.filter(
+            (segment) => segment.columnType !== "VALIDITY",
+          ),
+    [filteredSegments, showValidity],
+  );
+  const hasValidity = useMemo(
+    () => inspection.segments.some((s) => s.columnType === "VALIDITY"),
+    [inspection.segments],
+  );
   const logicalUnits = useMemo(
-    () => buildRowGroupUnits(filteredSegments),
-    [filteredSegments],
+    () => buildRowGroupUnits(logicalSegments),
+    [logicalSegments],
   );
   const firstMatchingBlockId = deferredQuery.trim()
     ? matchingBlocks.find((block) => block.role !== "header")?.id
@@ -338,7 +460,7 @@ export default function App() {
   );
   const logicalLayout = useContinuousLayout(
     logicalUnits,
-    filteredSegments.length > LARGE_SEGMENT_COUNT,
+    logicalSegments.length > LARGE_SEGMENT_COUNT,
     64,
     selectedSegment
       ? logicalUnits.findIndex(
@@ -543,6 +665,19 @@ export default function App() {
   }, [selectedBlock, selectedSegment, loadBlockBytes, loadingFile]);
 
   useEffect(() => {
+    if (pendingTableScroll == null || view !== "logical") return;
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-logical-table="${CSS.escape(pendingTableScroll)}"]`,
+        )
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+      setPendingTableScroll(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingTableScroll, view, logicalSegments]);
+
+  useEffect(() => {
     if (view !== "physical" || firstMatchingBlockId == null) return;
     document
       .querySelector<HTMLButtonElement>(
@@ -556,11 +691,22 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         searchInputRef.current?.focus();
+        return;
       }
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [role=tooltip], [role=dialog]")
+      )
+        return;
+      // Tooltips close first; a second Escape clears the selection.
+      if (document.querySelector("[role=tooltip]")) return;
+      clearSelection();
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, []);
+  }, [clearSelection]);
 
   const selectCheckpoint = (slot: 1 | 2) => {
     setSelectedHeaderSlot(slot);
@@ -585,6 +731,15 @@ export default function App() {
       .map(([name, segments]) => ({ name, segments }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [inspection.segments, inspection.native]);
+  const tableSchema = useMemo(
+    () => commonSchemaPrefix(tables.map((table) => table.name)),
+    [tables],
+  );
+  const pickTable = (name: string) => {
+    const next = query === name ? "" : name;
+    setQuery(next);
+    if (next && view === "logical") setPendingTableScroll(next);
+  };
   const roleLabels: Record<StorageRole, string> = {
     header: "Headers",
     metadata: "Metadata",
@@ -607,6 +762,13 @@ export default function App() {
   const fragmentation = useMemo(
     () => fragmentationSummary(inspection),
     [inspection],
+  );
+  const freeBlockCount = useMemo(
+    () =>
+      inspection.source === "demo" || inspection.freeList?.complete !== false
+        ? dataBlocks.filter((block) => block.role === "free").length
+        : null,
+    [dataBlocks, inspection.freeList, inspection.source],
   );
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -695,66 +857,76 @@ export default function App() {
       </header>
       <div className="app-layout">
         <aside className="sidebar">
-          <div className="side-section">
-            <div className="eyebrow-row">
-              <span className="eyebrow">TABLES</span>
-              <span className="side-count">{tables.length}</span>
+          <div className="sidebar-inner">
+            <div className="side-section">
+              <div className="eyebrow-row">
+                <span className="eyebrow">TABLES</span>
+                <span className="side-count">{tables.length}</span>
+              </div>
+              {tables.length ? (
+                <div className="side-tables">
+                  {tableSchema && (
+                    <span className="side-schema">
+                      Schema <code>{tableSchema.slice(0, -1)}</code>
+                      <small>segments</small>
+                    </span>
+                  )}
+                  {tables.map((table) => (
+                    <button
+                      type="button"
+                      key={table.name}
+                      className={query === table.name ? "active" : ""}
+                      aria-pressed={query === table.name}
+                      onClick={() => pickTable(table.name)}
+                      title={`${table.name} · ${formatNumber(table.segments)} segments. Click to highlight; click again to clear.`}
+                    >
+                      <Table2 size={14} />
+                      <span>{table.name.slice(tableSchema.length)}</span>
+                      <small aria-label={`${table.segments} segments`}>
+                        {formatNumber(table.segments)}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="side-empty">
+                  {inspection.native
+                    ? "No tables in this checkpoint."
+                    : "Logical metadata is not available for this file."}
+                </p>
+              )}
             </div>
-            {tables.length ? (
-              <div className="side-tables">
-                {tables.map((table) => (
-                  <button
-                    type="button"
-                    key={table.name}
-                    className={query === table.name ? "active" : ""}
-                    onClick={() => {
-                      setQuery(query === table.name ? "" : table.name);
-                    }}
-                    title={`${table.name} · ${table.segments} segments`}
-                  >
-                    <Table2 size={14} />
-                    <span>{table.name.replace(/^analytics\./, "")}</span>
-                    <small>{table.segments}</small>
-                  </button>
+            <div className="side-section side-section-divider">
+              <span className="eyebrow">FILE PROPERTIES</span>
+              <div className="overview-stat">
+                <span>Storage revision</span>
+                <strong>v{inspection.storageVersion}</strong>
+              </div>
+              <div className="overview-stat">
+                <span>Block allocation</span>
+                <strong>{formatBytes(inspection.blockSize)}</strong>
+              </div>
+              <div className="overview-stat">
+                <span>Vector size</span>
+                <strong>{formatNumber(inspection.vectorSize)}</strong>
+              </div>
+            </div>
+            <div className="side-section side-section-divider">
+              <div className="eyebrow-row">
+                <span className="eyebrow">CHECKPOINTS</span>
+                <span className="side-count">{inspection.headers.length}</span>
+              </div>
+              <div className="checkpoint-list">
+                {inspection.headers.map((header) => (
+                  <CheckpointCard
+                    key={header.slot}
+                    checkpoint={header}
+                    activeSlot={inspection.activeHeader}
+                    selected={selectedHeaderSlot === header.slot}
+                    onClick={() => selectCheckpoint(header.slot)}
+                  />
                 ))}
               </div>
-            ) : (
-              <p className="side-empty">
-                {inspection.native
-                  ? "No tables in this checkpoint."
-                  : "Logical metadata is not available for this file."}
-              </p>
-            )}
-          </div>
-          <div className="side-section side-section-divider">
-            <span className="eyebrow">FILE PROPERTIES</span>
-            <div className="overview-stat">
-              <span>Storage revision</span>
-              <strong>v{inspection.storageVersion}</strong>
-            </div>
-            <div className="overview-stat">
-              <span>Block allocation</span>
-              <strong>{formatBytes(inspection.blockSize)}</strong>
-            </div>
-            <div className="overview-stat">
-              <span>Vector size</span>
-              <strong>{formatNumber(inspection.vectorSize)}</strong>
-            </div>
-          </div>
-          <div className="side-section side-section-divider">
-            <div className="eyebrow-row">
-              <span className="eyebrow">CHECKPOINTS</span>
-              <span className="side-count">{inspection.headers.length}</span>
-            </div>
-            <div className="checkpoint-list">
-              {inspection.headers.map((header) => (
-                <CheckpointCard
-                  key={header.slot}
-                  checkpoint={header}
-                  active={selectedHeaderSlot === header.slot}
-                  onClick={() => selectCheckpoint(header.slot)}
-                />
-              ))}
             </div>
           </div>
         </aside>
@@ -795,7 +967,12 @@ export default function App() {
               <div className="support-metric">
                 <span className="eyebrow">PHYSICAL BLOCKS</span>
                 <strong>{formatNumber(dataBlocks.length)}</strong>
-                <small>{formatBytes(inspection.blockSize)} per block</small>
+                <small>
+                  {freeBlockCount != null
+                    ? `${formatNumber(freeBlockCount)} free · `
+                    : ""}
+                  {formatBytes(inspection.blockSize)} each
+                </small>
               </div>
               <div className="support-metric">
                 <span className="eyebrow">MAPPED SEGMENTS</span>
@@ -1039,7 +1216,7 @@ export default function App() {
             </div>
           </div>
           <div
-            className={`content-grid${selectedBlock || selectedSegment || selectedHeader ? " has-selection" : ""}`}
+            className="content-grid has-selection"
             aria-busy={query !== deferredQuery}
           >
             <section className="map-column" aria-label="File map">
@@ -1074,14 +1251,7 @@ export default function App() {
                     </div>
                   </div>
                   {view === "physical" && (
-                    <label
-                      className="tile-size-control"
-                      style={
-                        {
-                          "--tile-progress": `${((cellSize - 4) / 20) * 100}%`,
-                        } as React.CSSProperties
-                      }
-                    >
+                    <label className="tile-size-control">
                       <span>Tile size</span>
                       <input
                         type="range"
@@ -1224,11 +1394,25 @@ export default function App() {
                   />
                 ) : semanticReady ? (
                   <div className="logical-body">
-                    <LogicalColorLegend
-                      mode={logicalColorMode}
-                      metrics={logicalMetrics}
-                      column={valueColumn}
-                    />
+                    <div className="logical-toolbar">
+                      <LogicalColorLegend
+                        mode={logicalColorMode}
+                        metrics={logicalMetrics}
+                        column={valueColumn}
+                      />
+                      {hasValidity && (
+                        <label className="logical-toggle">
+                          <input
+                            type="checkbox"
+                            checked={showValidity}
+                            onChange={(event) =>
+                              setShowValidity(event.target.checked)
+                            }
+                          />
+                          Validity columns
+                        </label>
+                      )}
+                    </div>
                     {filteredSegments.length === 0 ? (
                       <div className="empty-search">
                         <Search size={16} />
@@ -1242,7 +1426,7 @@ export default function App() {
                       <>
                         <LogicalGroups
                           rowGroupsInfo={inspection.native?.rowGroupsInfo}
-                          segments={filteredSegments}
+                          segments={logicalSegments}
                           groups={visibleLogicalUnits}
                           selectedId={selectedSegmentId}
                           selectedBlockId={selectedBlockId}
@@ -1315,8 +1499,11 @@ export default function App() {
                 )}
               </div>
             </section>
-            {(selectedBlock || selectedSegment || selectedHeader) && (
-              <aside className="details-panel" aria-label="Selection details">
+            {
+              <aside
+                className={`details-panel${selectedBlock || selectedSegment || selectedHeader ? "" : " is-empty"}`}
+                aria-label="Selection details"
+              >
                 <div className="details-header">
                   <div>
                     <h2>
@@ -1325,26 +1512,39 @@ export default function App() {
                         : selectedSegment
                           ? selectedSegment.column
                           : selectedBlock
-                            ? `Block ${String(selectedBlock.id).padStart(4, "0")}`
+                            ? selectedBlock.role === "header"
+                              ? selectedBlock.label
+                              : `Block ${selectedBlock.id}`
                             : "Inspector"}
                     </h2>
+                    {selectedSegment && !selectedHeader && (
+                      <p className="details-subtitle">
+                        {selectedSegment.table} · row group{" "}
+                        {selectedSegment.rowGroup}
+                      </p>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    className="details-close"
-                    aria-label="Clear selection"
-                    disabled={
-                      !selectedBlock && !selectedSegment && !selectedHeader
-                    }
-                    onClick={clearSelection}
-                  >
-                    <X size={15} />
-                  </button>
+                  {(selectedBlock || selectedSegment || selectedHeader) && (
+                    <button
+                      type="button"
+                      className="details-close"
+                      aria-label="Clear selection"
+                      title="Clear selection (Esc)"
+                      onClick={clearSelection}
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
                 </div>
                 {selectedHeader ? (
                   <CheckpointDetails
                     checkpoint={selectedHeader}
-                    source={inspection.source}
+                    activeSlot={inspection.activeHeader}
+                    blocksById={blocksById}
+                    onBlockClick={(id) => {
+                      const block = blocksById.get(id);
+                      if (block) chooseBlock(block);
+                    }}
                     onShowFreeList={
                       selectedHeader.slot === inspection.activeHeader
                         ? () => {
@@ -1418,14 +1618,21 @@ export default function App() {
                       void loadBlockBytes(selectedBlock, offset)
                     }
                   />
-                ) : null}
+                ) : (
+                  <InspectorEmptyState view={view} />
+                )}
               </aside>
-            )}
+            }
           </div>
         </main>
       </div>
     </div>
   );
+}
+
+/** Column width grows with its busiest cell so segment strips stay clickable. */
+function logicalColumnWidth(maxSegments: number) {
+  return Math.round(Math.min(320, Math.max(96, maxSegments * 5 + 20)));
 }
 
 const LogicalGroups = memo(function LogicalGroups({
@@ -1462,6 +1669,26 @@ const LogicalGroups = memo(function LogicalGroups({
     () => buildLogicalTables(segments, groups, index),
     [segments, groups, index],
   );
+  const columnWidths = useMemo(
+    () =>
+      new Map(
+        tables.map((table) => [
+          table.name,
+          table.columns.map((column) =>
+            logicalColumnWidth(
+              table.rows.reduce(
+                (max, row) =>
+                  Math.max(max, row.cells.get(column.name)?.length ?? 0),
+                0,
+              ),
+            ),
+          ),
+        ]),
+      ),
+    [tables],
+  );
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const host = useRef<HTMLDivElement>(null);
   const columnHeaders = useRef(new Map<string, HTMLDivElement>());
   useEffect(() => {
     const header = valueColumnKey
@@ -1475,77 +1702,110 @@ const LogicalGroups = memo(function LogicalGroups({
     scroller.scrollLeft +=
       relativeLeft - (scroller.clientWidth - header.clientWidth) / 2;
   }, [valueColumnKey, tables]);
+  // Reveal the selection when arriving from another view or selecting a block
+  // elsewhere; `nearest` leaves an already visible segment where it is.
+  useEffect(() => {
+    if (selectedId == null && selectedBlockId == null) return;
+    const target = host.current?.querySelector<HTMLElement>(
+      ".segment-choice.selected",
+    );
+    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [selectedId, selectedBlockId, collapsed]);
   return (
-    <div className="logical-groups">
-      {tables.map((table) => (
-        <section className="table-group" key={table.name}>
-          <div className="table-group-heading">
-            <div className="table-group-name">
-              <span className="table-icon">
-                <Table2 size={15} />
-              </span>
-              <div>
-                <strong>{table.name}</strong>
-                <span>
-                  {table.columns.length} columns · {table.rows.length} row
-                  groups
-                </span>
-              </div>
-            </div>
-            <Badge variant="neutral">{table.segmentCount} segments</Badge>
-          </div>
-          <div className="logical-table-wrap">
-            <div
-              className="logical-table"
-              style={
-                {
-                  "--column-count": table.columns.length,
-                } as React.CSSProperties
+    <div className="logical-groups" ref={host}>
+      {tables.map((table) => {
+        const isCollapsed = collapsed.has(table.name);
+        const widths = columnWidths.get(table.name) ?? [];
+        return (
+          <section
+            className={`table-group${isCollapsed ? " is-collapsed" : ""}`}
+            key={table.name}
+            data-logical-table={table.name}
+          >
+            <button
+              type="button"
+              className="table-group-heading"
+              aria-expanded={!isCollapsed}
+              onClick={() =>
+                setCollapsed((previous) => {
+                  const next = new Set(previous);
+                  if (next.has(table.name)) next.delete(table.name);
+                  else next.add(table.name);
+                  return next;
+                })
               }
             >
-              <div className="logical-cell logical-axis">ROW GROUP</div>
-              {table.columns.map((column) => (
-                <div
-                  className={`logical-cell logical-column-head${valueColumnKey === JSON.stringify([table.name, column.name]) ? " value-column-focus" : ""}`}
-                  ref={(node) => {
-                    const key = JSON.stringify([table.name, column.name]);
-                    if (node) columnHeaders.current.set(key, node);
-                    else columnHeaders.current.delete(key);
-                  }}
-                  title={`${column.name} · ${column.type}`}
-                  key={column.name}
-                >
-                  <strong>{column.name}</strong>
-                  <span>{shortName(column.type, 18)}</span>
+              <div className="table-group-name">
+                <ChevronDown size={14} className="table-group-chevron" />
+                <span className="table-icon">
+                  <Table2 size={15} />
+                </span>
+                <div>
+                  <strong>{table.name}</strong>
+                  <span>
+                    {table.columns.length} columns ·{" "}
+                    {formatNumber(table.rows.length)} row groups
+                  </span>
                 </div>
-              ))}
-              {table.rows.map((row) => (
-                <LogicalRow
-                  key={row.group.rowGroup}
-                  summary={rowSummaries.get(
-                    JSON.stringify([table.name, row.group.rowGroup]),
-                  )}
-                  model={row}
-                  columns={table.columns}
-                  selectedId={
-                    selectedId != null && row.segmentIds.has(selectedId)
-                      ? selectedId
-                      : null
-                  }
-                  selectedBlockId={
-                    selectedBlockId != null && row.blockIds.has(selectedBlockId)
-                      ? selectedBlockId
-                      : null
-                  }
-                  colors={colors}
-                  valueColumnKey={valueColumnKey}
-                  onPick={onPick}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-      ))}
+              </div>
+              <Badge variant="neutral">
+                {formatNumber(table.segmentCount)} segments
+              </Badge>
+            </button>
+            {!isCollapsed && (
+              <div className="logical-table-wrap">
+                <div
+                  className="logical-table"
+                  style={{
+                    gridTemplateColumns: `var(--logical-axis-width) ${widths.map((width) => `minmax(${width}px, ${width}fr)`).join(" ")}`,
+                  }}
+                >
+                  <div className="logical-cell logical-axis">ROW GROUP</div>
+                  {table.columns.map((column) => (
+                    <div
+                      className={`logical-cell logical-column-head${valueColumnKey === JSON.stringify([table.name, column.name]) ? " value-column-focus" : ""}`}
+                      ref={(node) => {
+                        const key = JSON.stringify([table.name, column.name]);
+                        if (node) columnHeaders.current.set(key, node);
+                        else columnHeaders.current.delete(key);
+                      }}
+                      title={`${column.name} · ${column.type}`}
+                      key={column.name}
+                    >
+                      <strong>{column.name}</strong>
+                      <span>{shortName(column.type, 18)}</span>
+                    </div>
+                  ))}
+                  {table.rows.map((row) => (
+                    <LogicalRow
+                      key={row.group.rowGroup}
+                      summary={rowSummaries.get(
+                        JSON.stringify([table.name, row.group.rowGroup]),
+                      )}
+                      model={row}
+                      columns={table.columns}
+                      selectedId={
+                        selectedId != null && row.segmentIds.has(selectedId)
+                          ? selectedId
+                          : null
+                      }
+                      selectedBlockId={
+                        selectedBlockId != null &&
+                        row.blockIds.has(selectedBlockId)
+                          ? selectedBlockId
+                          : null
+                      }
+                      colors={colors}
+                      valueColumnKey={valueColumnKey}
+                      onPick={onPick}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 });
@@ -1577,12 +1837,18 @@ const LogicalRow = memo(function LogicalRow({
         <span>RG {group}</span>
         <small>
           {summary
-            ? `${formatNumber(summary.liveRows)} live / ${formatNumber(summary.physicalRows)} physical`
+            ? summary.liveRows === summary.physicalRows
+              ? `${formatNumber(summary.physicalRows)} rows`
+              : `${formatNumber(summary.liveRows)} live / ${formatNumber(summary.physicalRows)} physical`
             : coverage
               ? `${formatNumber(coverage.count)} rows`
               : "Unknown rows"}
         </small>
-        {summary && <small>{formatNumber(summary.deletedRows)} deleted</small>}
+        {summary && summary.deletedRows > 0 && (
+          <small className="row-label-deleted">
+            {formatNumber(summary.deletedRows)} deleted
+          </small>
+        )}
       </div>
       {columns.map(({ name: column }) => {
         const cellSegments = model.cells.get(column) ?? [];
@@ -1599,6 +1865,11 @@ const LogicalRow = memo(function LogicalRow({
           <div
             key={`${group}-${column}`}
             className="logical-cell segment-cell-stack"
+            title={
+              cellSegments.length > 1
+                ? `${cellSegments.length} segments; widths are proportional to rows`
+                : undefined
+            }
           >
             {cellSegments.map((segment) => {
               const selected =
@@ -1615,12 +1886,13 @@ const LogicalRow = memo(function LogicalRow({
                   style={
                     {
                       "--block-color": appearance.background,
+                      flexGrow: Math.max(1, segment.rowCount),
                     } as React.CSSProperties
                   }
                   onClick={() => onPick(segment)}
                   aria-pressed={selected}
                   aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${segment.compression}, ${formatBytes(segment.byteSize)}, ${segment.blockId >= 0 ? `block ${segment.blockId}` : "constant, no data block"}, ${appearance.description}`}
-                  title={`${segment.table}.${segment.column}\nRow group ${segment.rowGroup} · ${segment.compression}\n${formatBytes(segment.byteSize)} · ${segment.blockId >= 0 ? `Block ${segment.blockId}` : "Constant · no data block"}\n${appearance.description}`}
+                  title={`${segment.table}.${segment.column}\nRow group ${segment.rowGroup} · rows ${formatNumber(segment.rowStart)}–${formatNumber(segment.rowStart + segment.rowCount - 1)}\n${segment.compression} · ${formatBytes(segment.byteSize)} · ${segment.blockId >= 0 ? `Block ${segment.blockId}` : "Constant · no data block"}\n${appearance.description}`}
                 />
               );
             })}
@@ -1631,17 +1903,50 @@ const LogicalRow = memo(function LogicalRow({
   );
 });
 
+function MetaPointerValue({
+  raw,
+  blocksById,
+  onBlockClick,
+}: {
+  raw: string;
+  blocksById: Map<number, FileBlock>;
+  onBlockClick: (id: number) => void;
+}) {
+  const pointer = decodeMetaPointer(raw);
+  if (!raw) return <>Unknown</>;
+  if (!pointer) return <span title={`Raw value ${raw}`}>None</span>;
+  const label = `Block ${pointer.blockId} · slot ${pointer.slot}`;
+  return blocksById.has(pointer.blockId) ? (
+    <button
+      type="button"
+      className="inline-block-link"
+      title={`Raw pointer ${raw}. Click to inspect block ${pointer.blockId}.`}
+      onClick={() => onBlockClick(pointer.blockId)}
+    >
+      {label}
+      <ArrowUpRight size={11} />
+    </button>
+  ) : (
+    <span title={`Raw pointer ${raw}`}>{label}</span>
+  );
+}
+
 function CheckpointDetails({
   checkpoint,
-  source,
+  activeSlot,
+  blocksById,
+  onBlockClick,
   onShowFreeList,
   onInspectBytes,
 }: {
   checkpoint: CheckpointHeader;
-  source: FileInspection["source"];
+  activeSlot: 1 | 2;
+  blocksById: Map<number, FileBlock>;
+  onBlockClick: (id: number) => void;
   onShowFreeList?: () => void;
   onInspectBytes: () => void;
 }) {
+  const status = checkpointStatus(checkpoint, activeSlot);
   return (
     <div className="detail-content">
       <div className="selected-kind-row">
@@ -1649,30 +1954,44 @@ function CheckpointDetails({
           className={`role-dot ${checkpoint.valid ? "valid-dot" : "invalid-dot"}`}
         />
         <span>Checkpoint snapshot</span>
-        <Badge variant={checkpoint.valid ? "default" : "warning"}>
-          {checkpoint.valid ? "Valid" : "Invalid"}
+        <Badge variant={status.tone === "invalid" ? "warning" : "default"}>
+          {status.label}
         </Badge>
       </div>
+      <p className="section-caption">
+        {status.tone === "active"
+          ? "DuckDB reads this checkpoint because it is the newest valid header."
+          : status.tone === "previous"
+            ? "An older valid checkpoint that DuckDB keeps for crash recovery. Its pointers may reference blocks that have since been reused."
+            : "This header failed checksum validation and is ignored."}
+      </p>
       <div className="detail-card">
         <span className="detail-card-kicker">HEADER FIELDS</span>
-        <DetailPair label="Slot" value={`Checkpoint ${checkpoint.slot}`} />
-        <DetailPair
-          label="Validity"
-          value={checkpoint.valid ? "Valid" : "Invalid"}
-        />
         <DetailPair
           label="Iteration"
           value={checkpoint.iteration || "Unknown"}
           mono
         />
         <DetailPair
-          label="Metadata block"
-          value={checkpoint.metaBlock || "Unknown"}
+          label="Metadata root"
+          value={
+            <MetaPointerValue
+              raw={checkpoint.metaBlock}
+              blocksById={blocksById}
+              onBlockClick={onBlockClick}
+            />
+          }
           mono
         />
         <DetailPair
           label="Free list"
-          value={checkpoint.freeList || "Unknown"}
+          value={
+            <MetaPointerValue
+              raw={checkpoint.freeList}
+              blocksById={blocksById}
+              onBlockClick={onBlockClick}
+            />
+          }
           mono
         />
         {onShowFreeList && (
@@ -1805,10 +2124,12 @@ function BlockDetails({
             )
           }
         />
-        <DetailPair
-          label="Internal free space"
-          value={formatBytes(internalFreeBytes(block), true)}
-        />
+        {block.role !== "free" && (
+          <DetailPair
+            label="Internal free space"
+            value={formatBytes(internalFreeBytes(block), true)}
+          />
+        )}
         {block.role === "index" && (
           <>
             <DetailPair
@@ -1844,7 +2165,9 @@ function BlockDetails({
         {block.checksum != null && (
           <DetailPair label="Checksum" value={block.checksum} mono />
         )}
-        <DetailPair label="Description" value={block.label || "Unknown"} />
+        {block.role !== "free" && !block.indexOwners?.length && (
+          <DetailPair label="Description" value={block.label || "Unknown"} />
+        )}
         {block.role === "free" && inspection.freeList && (
           <>
             <DetailPair
@@ -1873,7 +2196,7 @@ function BlockDetails({
           (entry) => entry.blockId === block.id,
         ) && (
           <DetailPair
-            label="Shared references"
+            label="Free-list references"
             value={
               inspection.freeList.multiUseBlocks.find(
                 (entry) => entry.blockId === block.id,
@@ -1948,7 +2271,7 @@ function BlockDetails({
                     type="button"
                     className={`range-row ${segment ? "range-row-linked" : ""}`}
                     key={range.id}
-                    title={`${formatOffset(range.offset)} · ${formatNumber(range.size)} bytes${segment ? " · Jump to segment" : ""}`}
+                    title={`${range.label}\n${formatOffset(range.offset)} · ${formatNumber(range.size)} bytes${segment ? " · Jump to segment" : ""}`}
                     disabled={!segment}
                     onClick={() => {
                       if (segment) onSegmentClick(segment);
@@ -2202,6 +2525,17 @@ function SegmentDetails({
     block?.links
       .map((id) => blocksById.get(id))
       .filter((candidate): candidate is FileBlock => Boolean(candidate)) ?? [];
+  const statistics = describeStatistics(segment.stats);
+  const bound = (value: string | undefined, prefix: boolean) =>
+    value == null ? (
+      "Not recorded"
+    ) : prefix ? (
+      <span title="DuckDB stores a truncated prefix for this string bound">
+        {value}… <small className="bound-note">prefix</small>
+      </span>
+    ) : (
+      value
+    );
   return (
     <div className="detail-content">
       <div className="selected-kind-row">
@@ -2228,7 +2562,7 @@ function SegmentDetails({
         />
         <DetailPair label="Row count" value={formatNumber(segment.rowCount)} />
         <DetailPair label="Byte size" value={formatBytes(segment.byteSize)} />
-        {colorMetric && (
+        {colorMetric && colorMetric.label !== "Compression" && (
           <DetailPair
             label={colorMetric.label}
             value={colorMetric.description}
@@ -2245,12 +2579,12 @@ function SegmentDetails({
         />
         <DetailPair
           label="Minimum"
-          value={segment.min ?? "Not recorded"}
+          value={bound(segment.min, statistics?.minPrefix ?? false)}
           mono
         />
         <DetailPair
           label="Maximum"
-          value={segment.max ?? "Not recorded"}
+          value={bound(segment.max, statistics?.maxPrefix ?? false)}
           mono
         />
         <DetailPair
@@ -2264,10 +2598,12 @@ function SegmentDetails({
                   : undefined),
           )}
         />
-        <DetailPair
-          label="Statistics"
-          value={segment.stats ?? "Not recorded"}
-        />
+        {statistics?.rows.map(([label, value]) => (
+          <DetailPair key={label} label={label} value={value} />
+        ))}
+        {statistics?.raw && (
+          <DetailPair label="Statistics" value={statistics.raw} />
+        )}
       </div>
       {rowSummary && (
         <div className="detail-card">
@@ -2321,7 +2657,6 @@ function SegmentDetails({
         <div className="detail-section">
           <div className="detail-section-heading">
             <span>Physical placement</span>
-            <span>Block {block.id}</span>
           </div>
           <button
             type="button"

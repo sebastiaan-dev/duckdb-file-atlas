@@ -477,6 +477,8 @@ export function attachIndexRanges(
         offset: buffer.absoluteOffset,
         size: allocator.maskBytes,
         kind: "index",
+        nodeType: allocator.nodeType,
+        indexMask: true,
       });
       for (const [ordinal, run] of buffer.runs.entries())
         ranges.push({
@@ -489,6 +491,7 @@ export function attachIndexRanges(
             run.start * allocator.segmentSize,
           size: run.count * allocator.segmentSize,
           kind: run.occupied ? "index" : "unused",
+          nodeType: allocator.nodeType,
         });
     }
     ranges.sort((a, b) => a.offset - b.offset);

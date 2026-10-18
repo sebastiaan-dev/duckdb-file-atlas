@@ -123,7 +123,9 @@ const NODE_TYPE_VARIABLES: Record<string, string> = {
   NODE256_LEAF: "--node-node256-leaf",
 };
 export const FALLBACK_NODE_COLORS = 4;
-export function nodeTypeColor(allocator: IndexAllocator): string {
+export function nodeTypeColor(
+  allocator: Pick<IndexAllocator, "nodeType" | "ordinal">,
+): string {
   const variable = NODE_TYPE_VARIABLES[allocator.nodeType];
   return variable
     ? `var(${variable})`

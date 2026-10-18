@@ -147,6 +147,15 @@ function rawRange(
 function scaled(value: ExactValue, scale: number) {
   return value.coefficient * 10n ** BigInt(scale - value.scale);
 }
+/**
+ * Log scale: per-row footprints span orders of magnitude (bit-packed ints vs.
+ * long strings), so a linear ramp would leave nearly every segment pale.
+ */
+export function bytesPerRowPosition(rate: number, max: number): number {
+  if (!(max > 0) || !(rate > 0)) return 0;
+  return Math.min(1, Math.log1p(rate) / Math.log1p(max));
+}
+
 export function bytesPerRow(segment: Segment): number | null {
   return segment.byteSize != null &&
     Number.isFinite(segment.byteSize) &&
@@ -313,9 +322,7 @@ export function logicalAppearance(
       ? unknown("Bytes per row unknown")
       : known(
           rampColor(
-            metrics.maxBytesPerRow > 0
-              ? metric.bytesPerRow / metrics.maxBytesPerRow
-              : 0,
+            bytesPerRowPosition(metric.bytesPerRow, metrics.maxBytesPerRow),
             logicalRamp,
           ),
           `${formatRate(metric.bytesPerRow)} B/row`,

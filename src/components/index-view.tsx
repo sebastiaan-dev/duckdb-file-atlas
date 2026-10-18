@@ -405,19 +405,35 @@ export const IndexView = memo(function IndexView({
     inspection: FileInspection;
     id: string;
   } | null>(() => {
-    const initial = inspection.indexes?.find((index) =>
-      `${index.table} ${index.name}`
-        .toLocaleLowerCase()
-        .includes(query.trim().toLocaleLowerCase()),
-    );
+    const initial = inspection.indexes
+      ?.filter((index) =>
+        `${index.table} ${index.name}`
+          .toLocaleLowerCase()
+          .includes(query.trim().toLocaleLowerCase()),
+      )
+      .reduce<IndexInspection | undefined>(
+        (best, index) =>
+          !best || (index.allocationBytes ?? -1) > (best.allocationBytes ?? -1)
+            ? index
+            : best,
+        undefined,
+      );
     return initial ? { inspection, id: initial.id } : null;
   });
   const indexes = inspection.indexes;
   const filtered = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
-    return (indexes ?? []).filter((index) =>
-      `${index.table} ${index.name}`.toLocaleLowerCase().includes(term),
-    );
+    // Largest first: the comparison bars share one axis, so size order makes
+    // the dominant indexes and the long tail obvious at a glance.
+    return (indexes ?? [])
+      .filter((index) =>
+        `${index.table} ${index.name}`.toLocaleLowerCase().includes(term),
+      )
+      .sort(
+        (a, b) =>
+          (b.allocationBytes ?? -1) - (a.allocationBytes ?? -1) ||
+          a.name.localeCompare(b.name),
+      );
   }, [indexes, query]);
   const measurements = useMemo(
     () => indexMeasurements(indexes ?? []),
