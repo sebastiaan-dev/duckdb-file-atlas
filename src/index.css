@@ -3346,3 +3346,296 @@ strong.index-selected-size {
   text-align: right;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Collapsible sidebar: full list, icon rail, or slide-in drawer.          */
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin-right: 2px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sidebar-toggle:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+/* No width transition: animating the columns would re-lay out the block
+   map on every frame. */
+.app-layout.sidebar-collapsed {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+.sidebar-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 0;
+}
+.rail-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: 36px;
+  min-height: 36px;
+  padding: 5px 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.rail-button:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+.rail-button small {
+  font: 8px var(--mono);
+  color: var(--subtle);
+}
+.rail-divider {
+  width: 20px;
+  margin: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.rail-checkpoint i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e3a866;
+}
+.rail-checkpoint[data-status="active"] i {
+  background: #55b28e;
+}
+.rail-checkpoint[data-status="previous"] i {
+  background: var(--subtle);
+}
+.rail-checkpoint.selected {
+  border-color: #b1a6e0;
+  background: color-mix(in srgb, var(--surface), #8070d0 6%);
+}
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgb(20 20 28 / 28%);
+  animation: atlas-fade-in 140ms ease;
+}
+.sidebar.sidebar-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  display: block;
+  width: min(280px, 86vw);
+  overflow-y: auto;
+  background: var(--shell);
+  border-right: 1px solid var(--line);
+  box-shadow: 8px 0 30px rgb(0 0 0 / 14%);
+  outline: none;
+  animation: atlas-slide-in 160ms ease;
+}
+.sidebar-drawer .sidebar-inner {
+  position: static;
+  max-height: none;
+  padding: 24px 16px 20px;
+}
+@keyframes atlas-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes atlas-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-backdrop,
+  .sidebar.sidebar-drawer {
+    transition: none;
+    animation: none;
+  }
+}
+@media (max-width: 1250px) {
+  .app-layout.sidebar-collapsed {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Database summary: expanded card or a single collapsed line.            */
+.summary-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 140ms ease;
+}
+.summary-toggle:hover {
+  color: var(--ink);
+}
+.database-summary.is-collapsed .summary-toggle svg {
+  transform: rotate(-90deg);
+}
+.summary-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.database-summary.is-expanded .heading-actions {
+  padding-top: 0;
+}
+.database-summary.is-expanded {
+  margin-bottom: 4px;
+}
+.database-summary.is-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  margin-bottom: 8px;
+  padding: 6px 12px 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--soft-shadow);
+}
+.database-summary.is-collapsed h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.summary-chips {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0;
+  white-space: nowrap;
+}
+.summary-chips > div {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.summary-chips dt {
+  color: var(--subtle);
+  font-size: 9px;
+}
+.summary-chips dd {
+  margin: 0;
+  color: var(--ink);
+  font: 10px var(--mono);
+}
+.summary-chips dd small {
+  color: var(--muted);
+  font: inherit;
+}
+.allocation-rail.is-compact {
+  flex: 1 1 80px;
+  min-width: 60px;
+  height: 4px;
+  gap: 2px;
+}
+.summary-notes-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 8px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9px;
+  cursor: pointer;
+}
+.summary-notes-badge:hover {
+  color: var(--ink);
+}
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.summary-actions .h-8 {
+  height: 26px;
+}
+.overview-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 24px;
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.file-properties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+  font-size: 9px;
+}
+.file-properties > div {
+  display: flex;
+  gap: 6px;
+}
+.file-properties dt {
+  color: var(--subtle);
+}
+.file-properties dd {
+  margin: 0;
+  color: var(--ink);
+  font: 9px var(--mono);
+}
+.overview-footer .inspection-notes {
+  margin: 0;
+}
+.overview-footer .inspection-notes[open] {
+  flex-basis: 100%;
+}
+@media (max-width: 900px) {
+  .summary-chips > div:nth-child(n + 3) {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .database-summary.is-collapsed {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .database-summary.is-collapsed h1 {
+    flex: 1 1 60%;
+  }
+  .allocation-rail.is-compact {
+    flex-basis: 100%;
+    order: 10;
+  }
+}

@@ -1,4 +1,8 @@
 import { IndexView } from "@/components/index-view";
+import { AppSidebar } from "@/components/app-sidebar";
+import { DatabaseSummary } from "@/components/database-summary";
+import { checkpointStatus, commonSchemaPrefix } from "@/lib/checkpoint-status";
+import { useMediaQuery, usePersistentFlag } from "@/hooks/use-persistent-state";
 import { DenseByteStrip } from "@/components/dense-byte-strip";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
@@ -46,9 +50,10 @@ import {
   Upload,
   X,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sun,
   Plus,
-  Info,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,6 +70,7 @@ import {
   stableColor,
 } from "@/lib/palette";
 import { createDemo } from "@/lib/demo";
+import { formatBytes, formatNumber } from "@/lib/format";
 import { decodeMetaPointer } from "@/lib/meta-pointer";
 import { describeStatistics } from "@/lib/segment-stats";
 import { readBytes } from "@/lib/reader";
@@ -92,24 +98,6 @@ import type {
 
 type ViewMode = "physical" | "logical" | "free-list" | "indexes";
 type ByteView = { blockId: number; offset: number; bytes: Uint8Array } | null;
-
-function formatBytes(value: number | null | undefined, precise = false) {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024)
-    return `${(value / 1024).toFixed(precise ? 1 : value >= 10 * 1024 ? 0 : 1)} KiB`;
-  if (value < 1024 ** 3)
-    return `${(value / 1024 ** 2).toFixed(precise ? 1 : value >= 10 * 1024 ** 2 ? 0 : 1)} MiB`;
-  return `${(value / 1024 ** 3).toFixed(2)} GiB`;
-}
-
-const numberFormatter = new Intl.NumberFormat();
-
-function formatNumber(value: number | null | undefined) {
-  return value == null || !Number.isFinite(value)
-    ? "Unknown"
-    : numberFormatter.format(value);
-}
 
 function shortName(value: string, max = 20) {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
@@ -193,66 +181,6 @@ function DetailPair({
   );
 }
 
-function checkpointStatus(checkpoint: CheckpointHeader, activeSlot: 1 | 2) {
-  if (!checkpoint.valid) return { label: "Invalid", tone: "invalid" } as const;
-  return checkpoint.slot === activeSlot
-    ? ({ label: "Active", tone: "active" } as const)
-    : ({ label: "Previous", tone: "previous" } as const);
-}
-
-/** Shared schema prefixes (e.g. every table in `main`) are noise in lists. */
-function commonSchemaPrefix(names: string[]) {
-  if (!names.length) return "";
-  const schemas = new Set(
-    names.map((name) => (name.includes(".") ? name.split(".")[0] : "")),
-  );
-  const [schema] = [...schemas];
-  return schemas.size === 1 && schema ? `${schema}.` : "";
-}
-
-function CheckpointCard({
-  checkpoint,
-  activeSlot,
-  selected,
-  onClick,
-}: {
-  checkpoint: CheckpointHeader;
-  activeSlot: 1 | 2;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const status = checkpointStatus(checkpoint, activeSlot);
-  return (
-    <button
-      type="button"
-      className={`checkpoint-card ${selected ? "selected" : ""}`}
-      data-status={status.tone}
-      onClick={onClick}
-      aria-pressed={selected}
-      title={
-        status.tone === "active"
-          ? "The database reads this checkpoint"
-          : status.tone === "previous"
-            ? "Older checkpoint kept for crash recovery"
-            : "This header failed validation"
-      }
-    >
-      <span className="checkpoint-indicator" />
-      <span className="checkpoint-copy">
-        <span className="checkpoint-title">Checkpoint {checkpoint.slot}</span>
-        <span className="checkpoint-subtitle">
-          {checkpoint.valid
-            ? `Iteration ${checkpoint.iteration}`
-            : "Invalid snapshot"}
-        </span>
-      </span>
-      <span className={`checkpoint-state is-${status.tone}`}>
-        {status.label}
-      </span>
-    </button>
-  );
-}
-
 export default function App() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try {
@@ -284,6 +212,36 @@ export default function App() {
   const [pendingTableScroll, setPendingTableScroll] = useState<string | null>(
     null,
   );
+  // Collapsed by default so the data views start near the top.
+  const [summaryExpanded, setSummaryExpanded] = usePersistentFlag(
+    "atlas-summary-expanded",
+    false,
+  );
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag(
+    "atlas-sidebar-collapsed",
+    false,
+  );
+  // Below this width the sidebar becomes a slide-in drawer.
+  const narrow = useMediaQuery("(max-width: 1080px)");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!narrow) setDrawerOpen(false);
+  }, [narrow]);
+  const drawerWasOpen = useRef(false);
+  useEffect(() => {
+    // Move focus into the drawer, and back to its toggle when it closes.
+    if (drawerOpen) drawerRef.current?.focus();
+    else if (drawerWasOpen.current) sidebarToggleRef.current?.focus();
+    drawerWasOpen.current = drawerOpen;
+  }, [drawerOpen]);
+  const sidebarOpen = narrow ? drawerOpen : !sidebarCollapsed;
+  const toggleSidebar = useCallback(() => {
+    if (window.matchMedia("(max-width: 1080px)").matches)
+      setDrawerOpen((open) => !open);
+    else setSidebarCollapsed((collapsed) => !collapsed);
+  }, [setSidebarCollapsed]);
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [byteView, setByteView] = useState<ByteView>(null);
   const [loadingFile, setLoadingFile] = useState(false);
@@ -693,6 +651,20 @@ export default function App() {
         searchInputRef.current?.focus();
         return;
       }
+      if (
+        event.key === "[" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !(
+          event.target instanceof HTMLElement &&
+          event.target.closest("input, textarea, select, [contenteditable]")
+        )
+      ) {
+        event.preventDefault();
+        toggleSidebar();
+        return;
+      }
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target;
       if (
@@ -706,7 +678,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [clearSelection]);
+  }, [clearSelection, toggleSidebar]);
 
   const selectCheckpoint = (slot: 1 | 2) => {
     setSelectedHeaderSlot(slot);
@@ -740,6 +712,22 @@ export default function App() {
     setQuery(next);
     if (next && view === "logical") setPendingTableScroll(next);
   };
+  const sidebarProps = {
+    tables,
+    schemaPrefix: tableSchema,
+    emptyMessage: inspection.native
+      ? "No tables in this checkpoint."
+      : "Logical metadata is not available for this file.",
+    activeTable: query,
+    onPickTable: pickTable,
+    headers: inspection.headers,
+    activeSlot: inspection.activeHeader,
+    selectedSlot: selectedHeaderSlot,
+    onSelectCheckpoint: selectCheckpoint,
+  };
+  const hasHeadingActions =
+    inspection.source === "demo" ||
+    (inspection.source === "file" && !inspection.native);
   const roleLabels: Record<StorageRole, string> = {
     header: "Headers",
     metadata: "Metadata",
@@ -817,6 +805,21 @@ export default function App() {
       />
       <header className="topbar">
         <div className="brand-lockup">
+          <button
+            ref={sidebarToggleRef}
+            type="button"
+            className="sidebar-toggle"
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            aria-expanded={sidebarOpen}
+            title={`${sidebarOpen ? "Hide" : "Show"} sidebar ( [ )`}
+            onClick={toggleSidebar}
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose size={17} />
+            ) : (
+              <PanelLeftOpen size={17} />
+            )}
+          </button>
           <span className="brand-mark">
             <Database size={20} strokeWidth={1.6} />
           </span>
@@ -855,183 +858,94 @@ export default function App() {
           </Button>
         </div>
       </header>
-      <div className="app-layout">
-        <aside className="sidebar">
-          <div className="sidebar-inner">
-            <div className="side-section">
-              <div className="eyebrow-row">
-                <span className="eyebrow">TABLES</span>
-                <span className="side-count">{tables.length}</span>
-              </div>
-              {tables.length ? (
-                <div className="side-tables">
-                  {tableSchema && (
-                    <span className="side-schema">
-                      Schema <code>{tableSchema.slice(0, -1)}</code>
-                      <small>segments</small>
-                    </span>
-                  )}
-                  {tables.map((table) => (
-                    <button
-                      type="button"
-                      key={table.name}
-                      className={query === table.name ? "active" : ""}
-                      aria-pressed={query === table.name}
-                      onClick={() => pickTable(table.name)}
-                      title={`${table.name} · ${formatNumber(table.segments)} segments. Click to highlight; click again to clear.`}
-                    >
-                      <Table2 size={14} />
-                      <span>{table.name.slice(tableSchema.length)}</span>
-                      <small aria-label={`${table.segments} segments`}>
-                        {formatNumber(table.segments)}
-                      </small>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="side-empty">
-                  {inspection.native
-                    ? "No tables in this checkpoint."
-                    : "Logical metadata is not available for this file."}
-                </p>
-              )}
-            </div>
-            <div className="side-section side-section-divider">
-              <span className="eyebrow">FILE PROPERTIES</span>
-              <div className="overview-stat">
-                <span>Storage revision</span>
-                <strong>v{inspection.storageVersion}</strong>
-              </div>
-              <div className="overview-stat">
-                <span>Block allocation</span>
-                <strong>{formatBytes(inspection.blockSize)}</strong>
-              </div>
-              <div className="overview-stat">
-                <span>Vector size</span>
-                <strong>{formatNumber(inspection.vectorSize)}</strong>
-              </div>
-            </div>
-            <div className="side-section side-section-divider">
-              <div className="eyebrow-row">
-                <span className="eyebrow">CHECKPOINTS</span>
-                <span className="side-count">{inspection.headers.length}</span>
-              </div>
-              <div className="checkpoint-list">
-                {inspection.headers.map((header) => (
-                  <CheckpointCard
-                    key={header.slot}
-                    checkpoint={header}
-                    activeSlot={inspection.activeHeader}
-                    selected={selectedHeaderSlot === header.slot}
-                    onClick={() => selectCheckpoint(header.slot)}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </aside>
-        <main className="main-area">
-          <div className="workspace-heading">
-            <div>
-              <h1>{inspection.name}</h1>
-            </div>
-            <div className="heading-actions">
-              {inspection.source === "file" && !inspection.native && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => manifestInputRef.current?.click()}
-                  title="Import a duckdb-file-layout/v1 semantic JSON map"
-                >
-                  <FileCode2 size={14} />
-                  Import metadata
-                </Button>
-              )}
-              {inspection.source === "demo" && (
-                <Badge variant="neutral">Example</Badge>
-              )}
-              {inspection.source === "file" &&
-                !inspection.native &&
-                semanticReady && (
-                  <Badge variant="neutral">Imported metadata</Badge>
-                )}
-            </div>
-          </div>
-          <section className="overview-card" aria-label="Database overview">
-            <div className="overview-metrics">
-              <div className="hero-metric">
-                <span className="eyebrow">FILE FOOTPRINT</span>
-                <strong>{formatBytes(inspection.fileSize)}</strong>
-                <small>{formatNumber(inspection.fileSize)} bytes on disk</small>
-              </div>
-              <div className="support-metric">
-                <span className="eyebrow">PHYSICAL BLOCKS</span>
-                <strong>{formatNumber(dataBlocks.length)}</strong>
-                <small>
-                  {freeBlockCount != null
-                    ? `${formatNumber(freeBlockCount)} free · `
-                    : ""}
-                  {formatBytes(inspection.blockSize)} each
-                </small>
-              </div>
-              <div className="support-metric">
-                <span className="eyebrow">MAPPED SEGMENTS</span>
-                <strong>
-                  {semanticReady
-                    ? formatNumber(inspection.segments.length)
-                    : "—"}
-                </strong>
-                <small>
-                  {semanticReady
-                    ? `${tables.length} tables`
-                    : "Native decoding unavailable"}
-                </small>
-              </div>
-              <div className="support-metric">
-                <span className="eyebrow">DATA INTERNAL FREE SPACE</span>
-                <strong
-                  title={`${formatNumber(fragmentation.bytes)} bytes in completely mapped data blocks`}
-                >
-                  {fragmentation.measuredBlocks
-                    ? formatBytes(fragmentation.bytes, true)
-                    : "—"}
-                </strong>
-                <small>
-                  {fragmentation.measuredBlocks
-                    ? `${((fragmentation.ratio ?? 0) * 100).toFixed(2)}% unused · ${Math.round(fragmentation.coverage * 100)}% of data blocks measured`
-                    : "Complete segment extents required"}
-                </small>
-              </div>
-            </div>
+      <div
+        className={`app-layout${!narrow && sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+      >
+        {!narrow && (
+          <aside
+            className={`sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
+            aria-label="Sidebar"
+          >
+            <AppSidebar
+              {...sidebarProps}
+              variant={sidebarCollapsed ? "rail" : "full"}
+              onExpand={() => setSidebarCollapsed(false)}
+            />
+          </aside>
+        )}
+        {narrow && drawerOpen && (
+          <>
             <div
-              className="allocation-rail"
-              aria-label="File footprint by storage role"
+              className="sidebar-backdrop"
+              aria-hidden="true"
+              onClick={() => setDrawerOpen(false)}
+            />
+            <aside
+              className="sidebar sidebar-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Sidebar"
+              ref={drawerRef}
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDrawerOpen(false);
+                }
+              }}
             >
-              {roleSummary
-                .filter((role) => role.bytes > 0)
-                .map((role) => (
-                  <span
-                    key={role.role}
-                    style={{
-                      width: `${(role.bytes / inspection.fileSize) * 100}%`,
-                      backgroundColor: roleColors[role.role],
-                    }}
-                    title={`${role.label}: ${formatBytes(role.bytes)}`}
-                  />
-                ))}
-            </div>
-            <div className="overview-key">
-              {roleSummary
-                .filter((role) => role.bytes > 0)
-                .map((role) => (
-                  <span key={role.role}>
-                    <i style={{ backgroundColor: roleColors[role.role] }} />
-                    {role.label}
-                    <strong>{formatBytes(role.bytes)}</strong>
-                  </span>
-                ))}
-            </div>
-          </section>
+              <AppSidebar
+                {...sidebarProps}
+                variant="full"
+                onPickTable={(name) => {
+                  sidebarProps.onPickTable(name);
+                  setDrawerOpen(false);
+                }}
+                onSelectCheckpoint={(slot) => {
+                  sidebarProps.onSelectCheckpoint(slot);
+                  setDrawerOpen(false);
+                }}
+              />
+            </aside>
+          </>
+        )}
+        <main className="main-area">
+          <DatabaseSummary
+            inspection={inspection}
+            blockCount={dataBlocks.length}
+            freeBlockCount={freeBlockCount}
+            semanticReady={semanticReady}
+            tableCount={tables.length}
+            fragmentation={fragmentation}
+            roles={roleSummary}
+            expanded={summaryExpanded}
+            onExpandedChange={setSummaryExpanded}
+            actions={
+              hasHeadingActions ? (
+                <>
+                  {inspection.source === "file" && !inspection.native && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => manifestInputRef.current?.click()}
+                      title="Import a duckdb-file-layout/v1 semantic JSON map"
+                    >
+                      <FileCode2 size={14} />
+                      Import metadata
+                    </Button>
+                  )}
+                  {inspection.source === "demo" && (
+                    <Badge variant="neutral">Example</Badge>
+                  )}
+                  {inspection.source === "file" &&
+                    !inspection.native &&
+                    semanticReady && (
+                      <Badge variant="neutral">Imported metadata</Badge>
+                    )}
+                </>
+              ) : undefined
+            }
+          />
           {(error || manifestMessage) && (
             <div className="message-stack">
               {error && (
@@ -1063,22 +977,6 @@ export default function App() {
                 </div>
               )}
             </div>
-          )}
-          {inspection.warnings.length > 0 && (
-            <details className="inspection-notes">
-              <summary>
-                <Info size={13} />
-                {inspection.source === "demo"
-                  ? "Example data · layout and statistics are illustrative"
-                  : "Inspection notes and decoding coverage"}
-                <ChevronDown size={12} />
-              </summary>
-              <div>
-                {inspection.warnings.map((warning, index) => (
-                  <p key={index}>{warning}</p>
-                ))}
-              </div>
-            </details>
           )}
           <div className="workspace-tools">
             <Tabs
