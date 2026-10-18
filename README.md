@@ -90,3 +90,23 @@ See [the storage-format notes](docs/storage-format.md) for the source references
 Physical blocks and logical row groups are shown in one continuous layout, without pagination. Maps up to 50,000 blocks (about 12.2 GiB with default block sizes), or up to 50,000 logical segments, render in full. Larger maps append blocks or complete row groups as you approach the bottom; a “Load more” control also supports keyboard navigation. Searching and selecting blocks reveal the relevant part of the continuous map.
 
 The UI keeps hover local to the grid, shares one block tooltip, and caches logical cell and lookup indices. The inspector appears on selection. The map remains continuous; search and view controls stay available while scrolling. See [the measured SF4 comparison](docs/performance.md).
+
+### Logical colors
+
+The logical map uses its own color modes and remembers its selection independently of the physical map. Each square represents a segment; hatching marks constants without a data block.
+
+- **Compression:** recorded codec.
+- **Bytes per row:** recorded segment bytes divided by that segment's row count (child columns use their own value counts). This measures the segment payload, not unassigned auxiliary-block overhead.
+- **Relative footprint:** bytes per row divided by the median of known segment rates in the same table and column. The center is 1×; colors saturate at 0.25× and 4×. A zero median maps zero-byte segments to 1× and positive-byte segments above the scale.
+- **Value ranges:** select a numeric or date/timestamp column; each square transitions from its zonemap minimum to maximum on a shared column scale. Other columns dim. Numeric bounds and timestamp subsecond differences retain exact precision during normalization. Unsupported, infinite, and missing bounds stay unknown.
+- **Null fraction:** exact null counts, or 0%/100% confirmed by checkpoint statistics. Mixed null presence alone never supplies a percentage.
+
+All scales and column medians use the full inspection, so filtering and progressive loading do not shift the baseline. Missing measurements stay gray. Hover or select a segment to read its measurement.
+
+### Free-list tracking
+
+The Free list view follows the active checkpoint's allocator stream. It shows serialized free block IDs grouped into contiguous runs, implicit free blocks beyond the checkpoint extent, per-block 64-slot metadata allocation masks, and shared-block reference counts. The pointer chain retains block and slot IDs; selecting a chain node or free run opens the physical block inspector with allocator provenance.
+
+Whole free blocks are reusable allocations, separate from gaps inside live data blocks and reusable slots inside metadata blocks. A bounded/incomplete free-list scan shows unknown totals. Historical owners and the time a block was freed are not stored by this snapshot. Only very large maps append additional runs and allocator rows while scrolling.
+
+Free-block runs use a horizontal chart with one tile per block at individual zoom. All rows share the same scale in disk-offset order; filtering retains the full file's scale. Fit groups long runs into power-of-two block ranges, which expand to individual blocks on click. Hover shows IDs, sizes and offsets; arrow keys and Home/End move within a run, and Enter inspects a block or expands a group. SVG patterns keep individual zoom bounded in DOM size even for very long runs.

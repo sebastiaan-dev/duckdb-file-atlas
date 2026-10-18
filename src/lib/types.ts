@@ -74,7 +74,22 @@ export interface CheckpointHeader {
   storageVersion: number;
   valid: boolean;
 }
+export interface MetadataSlotPointer {
+  blockId: number;
+  slot: number;
+}
+export interface FreeListState {
+  checkpoint: 1 | 2;
+  complete: boolean;
+  root: MetadataSlotPointer | null;
+  chain: (MetadataSlotPointer & { next: MetadataSlotPointer | null })[];
+  blockIds: number[];
+  implicitBlockIds: number[];
+  metadata: { blockId: number; freeSlots: number[] }[];
+  multiUseBlocks: { blockId: number; references: number }[];
+}
 export interface FileInspection {
+  freeList?: FreeListState;
   name: string;
   fileSize: number;
   source: "demo" | "file";

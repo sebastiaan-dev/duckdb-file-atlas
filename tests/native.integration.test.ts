@@ -237,3 +237,53 @@ native("native catalog expressions and identifier identity", () => {
     }
   }, 60000);
 });
+
+native("rewritten checkpoints", () => {
+  test("reads reused column metadata whose old stream tail has been freed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "file-atlas-rewrite-"));
+    const path = join(directory, "rewritten.duckdb");
+    try {
+      const sql = `ATTACH '${path.replaceAll("'", "''")}' AS edited (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+        USE edited;
+        CREATE TABLE t AS SELECT i AS id, 'payload-' || (i % 20000)::VARCHAR AS label,
+          (i % 101)::INTEGER AS score, DATE '2026-01-01' + (i % 365)::INTEGER AS day,
+          i * 10 AS untouched, (i % 201)::INTEGER AS category FROM range(400000) r(i);
+        CHECKPOINT;
+        UPDATE t SET score = NULL WHERE id % 19 = 0;
+        UPDATE t SET day = NULL WHERE id % 31 = 0;
+        CREATE UNIQUE INDEX by_id ON t(id);
+        CREATE INDEX by_category ON t(category);
+        CHECKPOINT;`;
+      const process = Bun.spawn(
+        [duckdb!, "--batch", "--bail", "--no-init", "--no-agent", "-c", sql],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const stderr = await new Response(process.stderr).text();
+      expect(await process.exited, stderr).toBe(0);
+      const inspection = await inspectFile(Bun.file(path) as unknown as File);
+      expect(inspection.native?.complete, inspection.warnings.join("\n")).toBe(
+        true,
+      );
+      expect(inspection.native?.catalog?.[0].rows).toBe(400000);
+      expect(inspection.blocks.some((block) => block.role === "index")).toBe(
+        true,
+      );
+      const validity = inspection.segments.filter(
+        (segment) => segment.columnType === "VALIDITY" && segment.blockId >= 0,
+      );
+      expect(new Set(validity.map((segment) => segment.column))).toEqual(
+        new Set(["score.validity", "day.validity"]),
+      );
+      expect(
+        validity.every(
+          (segment) => segment.byteSize != null && segment.byteSize > 0,
+        ),
+      ).toBe(true);
+      expect(
+        inspection.segments.some((segment) => segment.column === "untouched"),
+      ).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 60000);
+});

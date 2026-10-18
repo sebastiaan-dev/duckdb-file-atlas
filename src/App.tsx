@@ -1,3 +1,14 @@
+import { FreeListView } from "@/components/free-list-view";
+import { LogicalColorLegend } from "@/components/logical-color-legend";
+import {
+  buildLogicalMetrics,
+  columnKey,
+  logicalAppearance,
+  logicalColorOptions,
+  nullFraction,
+  type LogicalColorMode,
+  type SegmentAppearance,
+} from "@/lib/logical-colors";
 import { fragmentationSummary, internalFreeBytes } from "@/lib/fragmentation";
 import {
   memo,
@@ -14,7 +25,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   Blocks,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +36,7 @@ import {
   HardDrive,
   Layers3,
   LoaderCircle,
+  ListTree,
   Search,
   Sparkles,
   Table2,
@@ -47,14 +58,12 @@ import {
   tablePalette,
   compressionPalette,
   stableColor,
-  spaceRamp,
 } from "@/lib/palette";
 import { createDemo } from "@/lib/demo";
 import { readBytes } from "@/lib/reader";
 import { inspectDatabase } from "@/lib/open-database";
 import { applyManifest } from "@/lib/semantic";
 import {
-  aggregateByteSize,
   buildRowGroupUnits,
   buildLogicalTables,
   createLogicalLayoutIndex,
@@ -72,7 +81,7 @@ import type {
   StorageRole,
 } from "@/lib/types";
 
-type ViewMode = "physical" | "logical";
+type ViewMode = "physical" | "logical" | "free-list";
 type Density = 0 | 1 | 2;
 type ByteView = { blockId: number; offset: number; bytes: Uint8Array } | null;
 
@@ -98,18 +107,18 @@ function shortName(value: string, max = 20) {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
-function segmentFootprintColor(byteSize: number | null, maximum: number) {
-  if (byteSize == null || maximum <= 0) return "var(--chart-empty)";
-  const ratio = Math.log1p(byteSize) / Math.log1p(maximum);
-  return spaceRamp[ratio > 0.75 ? 3 : ratio > 0.5 ? 2 : ratio > 0.25 ? 1 : 0];
-}
-
 function formatOffset(value: number) {
   return `0x${Math.max(0, value).toString(16).padStart(8, "0")}`;
 }
 
 function HeaderIcon({ mode }: { mode: ViewMode }) {
-  return mode === "physical" ? <HardDrive size={15} /> : <Layers3 size={15} />;
+  return mode === "physical" ? (
+    <HardDrive size={15} />
+  ) : mode === "free-list" ? (
+    <ListTree size={15} />
+  ) : (
+    <Layers3 size={15} />
+  );
 }
 
 function DetailPair({
@@ -174,6 +183,9 @@ export default function App() {
   );
   const [view, setView] = useState<ViewMode>("physical");
   const [colorMode, setColorMode] = useState<ColorMode>("role");
+  const [logicalColorMode, setLogicalColorMode] =
+    useState<LogicalColorMode>("compression");
+  const [valueColumnKey, setValueColumnKey] = useState("");
   const [density, setDensity] = useState<Density>(0);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -336,13 +348,28 @@ export default function App() {
     () => logicalUnits.slice(0, logicalLayout.visibleCount),
     [logicalUnits, logicalLayout.visibleCount],
   );
-  const maxLogicalSegmentBytes = useMemo(
-    () =>
-      inspection.segments.reduce(
-        (maximum, segment) => Math.max(maximum, segment.byteSize ?? 0),
-        0,
-      ),
+  const logicalMetrics = useMemo(
+    () => buildLogicalMetrics(inspection.segments),
     [inspection.segments],
+  );
+  const valueColumn =
+    logicalMetrics.valueColumns.find(
+      (column) => column.key === valueColumnKey,
+    ) ?? logicalMetrics.valueColumns[0];
+  const logicalColors = useMemo(
+    () =>
+      new Map(
+        inspection.segments.map((segment) => [
+          segment.id,
+          logicalAppearance(
+            segment,
+            logicalColorMode,
+            logicalMetrics,
+            valueColumn,
+          ),
+        ]),
+      ),
+    [inspection.segments, logicalColorMode, logicalMetrics, valueColumn],
   );
 
   const clearSelection = useCallback(() => {
@@ -372,6 +399,8 @@ export default function App() {
         setActiveFile(file);
         setView("physical");
         setColorMode("role");
+        setLogicalColorMode("compression");
+        setValueColumnKey("");
         setQuery("");
 
         clearSelection();
@@ -418,7 +447,7 @@ export default function App() {
         setSelectedHeaderSlot(null);
         setByteView(null);
 
-        setColorMode("table");
+        setLogicalColorMode("compression");
         setView("logical");
         setManifestMessage(`Semantic map added from ${file.name}`);
       } catch (caught) {
@@ -740,12 +769,6 @@ export default function App() {
                 semanticReady && (
                   <Badge variant="neutral">Imported metadata</Badge>
                 )}
-              {inspection.native && (
-                <Badge variant="purple">
-                  <Check size={12} />
-                  Decoded from file
-                </Badge>
-              )}
             </div>
           </div>
           <section className="overview-card" aria-label="Database overview">
@@ -871,10 +894,6 @@ export default function App() {
               value={view}
               onValueChange={(value) => {
                 setView(value as ViewMode);
-                if (value === "logical" && colorMode === "fragmentation")
-                  setColorMode("utilization");
-                if (value === "logical" && colorMode === "role")
-                  setColorMode("table");
               }}
             >
               <TabsList aria-label="Choose file map view" className="view-tabs">
@@ -885,6 +904,10 @@ export default function App() {
                 <TabsTrigger value="logical">
                   <Layers3 size={14} />
                   Logical map
+                </TabsTrigger>
+                <TabsTrigger value="free-list">
+                  <ListTree size={14} />
+                  Free list
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -897,8 +920,16 @@ export default function App() {
                   onChange={(event) => {
                     setQuery(event.target.value);
                   }}
-                  placeholder="Find a block, table, column…"
-                  aria-label="Search blocks, tables, or columns"
+                  placeholder={
+                    view === "free-list"
+                      ? "Find a free block ID…"
+                      : "Find a block, table, column…"
+                  }
+                  aria-label={
+                    view === "free-list"
+                      ? "Search free block IDs"
+                      : "Search blocks, tables, or columns"
+                  }
                 />
                 {query ? (
                   <button
@@ -914,34 +945,75 @@ export default function App() {
                   <kbd>⌘ K</kbd>
                 )}
               </label>
-              <label className="color-select-label">
-                <span>Color</span>
-                <select
-                  value={colorMode}
-                  aria-label="Color blocks by"
-                  onChange={(event) =>
-                    setColorMode(event.target.value as ColorMode)
-                  }
-                >
-                  <option value="role">Storage role</option>
-                  <option value="table" disabled={!semanticReady}>
-                    Table
-                  </option>
-                  <option value="column" disabled={!semanticReady}>
-                    Column
-                  </option>
-                  <option value="compression" disabled={!semanticReady}>
-                    Compression
-                  </option>
-                  {view === "physical" && (
-                    <option value="fragmentation">Internal free space</option>
-                  )}
-                  <option value="utilization">
-                    {view === "logical" ? "Segment footprint" : "Space used"}
-                  </option>
-                </select>
-                <ChevronDown size={12} />
-              </label>
+              {view !== "free-list" && (
+                <label className="color-select-label">
+                  <span>Color</span>
+                  <select
+                    value={view === "physical" ? colorMode : logicalColorMode}
+                    aria-label={
+                      view === "physical"
+                        ? "Color blocks by"
+                        : "Color segments by"
+                    }
+                    onChange={(event) =>
+                      view === "physical"
+                        ? setColorMode(event.target.value as ColorMode)
+                        : setLogicalColorMode(
+                            event.target.value as LogicalColorMode,
+                          )
+                    }
+                  >
+                    {view === "logical" ? (
+                      logicalColorOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="role">Storage role</option>
+                        <option value="table" disabled={!semanticReady}>
+                          Table
+                        </option>
+                        <option value="column" disabled={!semanticReady}>
+                          Column
+                        </option>
+                        <option value="compression" disabled={!semanticReady}>
+                          Compression
+                        </option>
+                        {view === "physical" && (
+                          <option value="fragmentation">
+                            Internal free space
+                          </option>
+                        )}
+                        <option value="utilization">Space used</option>
+                      </>
+                    )}
+                  </select>
+                  <ChevronDown size={12} />
+                </label>
+              )}
+              {view === "logical" && logicalColorMode === "value-range" && (
+                <label className="color-select-label value-column-select">
+                  <span>Column</span>
+                  <select
+                    aria-label="Value range column"
+                    value={valueColumn?.key ?? ""}
+                    disabled={!logicalMetrics.valueColumns.length}
+                    onChange={(event) => setValueColumnKey(event.target.value)}
+                  >
+                    {!logicalMetrics.valueColumns.length && (
+                      <option value="">No numeric or date zonemaps</option>
+                    )}
+                    {logicalMetrics.valueColumns.map((column) => (
+                      <option key={column.key} value={column.key}>
+                        {column.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} />
+                </label>
+              )}
             </div>
           </div>
           <div
@@ -957,13 +1029,20 @@ export default function App() {
                       <h2>
                         {view === "physical"
                           ? "Disk blocks"
-                          : "Row groups & columns"}
+                          : view === "free-list"
+                            ? "Free list"
+                            : "Row groups & columns"}
                       </h2>
                       <span className="count-label">
                         {formatNumber(
                           view === "physical"
                             ? dataBlocks.length
-                            : filteredSegments.length,
+                            : view === "free-list"
+                              ? inspection.freeList?.complete
+                                ? inspection.freeList.blockIds.length +
+                                  inspection.freeList.implicitBlockIds.length
+                                : null
+                              : filteredSegments.length,
                         )}
                       </span>
                     </div>
@@ -1079,8 +1158,26 @@ export default function App() {
                       segments={inspection.segments}
                     />
                   </div>
+                ) : view === "free-list" ? (
+                  <FreeListView
+                    inspection={inspection}
+                    query={deferredQuery}
+                    onPick={(id) => {
+                      const block = blocksById.get(id);
+                      if (block) chooseBlock(block);
+                    }}
+                    onCheckpoint={() => {
+                      clearSelection();
+                      setSelectedHeaderSlot(inspection.activeHeader);
+                    }}
+                  />
                 ) : semanticReady ? (
                   <div className="logical-body">
+                    <LogicalColorLegend
+                      mode={logicalColorMode}
+                      metrics={logicalMetrics}
+                      column={valueColumn}
+                    />
                     {filteredSegments.length === 0 ? (
                       <div className="empty-search">
                         <Search size={16} />
@@ -1097,8 +1194,12 @@ export default function App() {
                           groups={visibleLogicalUnits}
                           selectedId={selectedSegmentId}
                           selectedBlockId={selectedBlockId}
-                          mode={colorMode}
-                          maxSegmentBytes={maxLogicalSegmentBytes}
+                          colors={logicalColors}
+                          valueColumnKey={
+                            logicalColorMode === "value-range"
+                              ? valueColumn?.key
+                              : undefined
+                          }
                           onPick={chooseSegment}
                         />
                         {logicalLayout.hasMore && (
@@ -1122,13 +1223,6 @@ export default function App() {
                         )}
                       </>
                     )}
-                    <Legend
-                      mode={colorMode === "role" ? "table" : colorMode}
-                      semanticReady={semanticReady}
-                      segments={inspection.segments}
-                      logical
-                      maxSegmentBytes={maxLogicalSegmentBytes}
-                    />
                   </div>
                 ) : (
                   <div className="logical-empty-state">
@@ -1199,6 +1293,14 @@ export default function App() {
                   <CheckpointDetails
                     checkpoint={selectedHeader}
                     source={inspection.source}
+                    onShowFreeList={
+                      selectedHeader.slot === inspection.activeHeader
+                        ? () => {
+                            clearSelection();
+                            setView("free-list");
+                          }
+                        : undefined
+                    }
                     onInspectBytes={() => {
                       const block = headerBlocks.find(
                         (item) =>
@@ -1209,6 +1311,17 @@ export default function App() {
                   />
                 ) : selectedSegment ? (
                   <SegmentDetails
+                    colorMetric={
+                      view === "logical"
+                        ? {
+                            label: logicalColorOptions.find(
+                              (option) => option.value === logicalColorMode,
+                            )!.label,
+                            description: logicalColors.get(selectedSegment.id)!
+                              .description,
+                          }
+                        : undefined
+                    }
                     segment={selectedSegment}
                     inspection={inspection}
                     block={selectedBlock}
@@ -1217,6 +1330,23 @@ export default function App() {
                   />
                 ) : selectedBlock ? (
                   <BlockDetails
+                    onShowFreeList={
+                      inspection.freeList &&
+                      (selectedBlock.role === "free" ||
+                        inspection.freeList.chain.some(
+                          (node) => node.blockId === selectedBlock.id,
+                        ))
+                        ? () => {
+                            setQuery(
+                              selectedBlock.role === "free"
+                                ? String(selectedBlock.id)
+                                : "",
+                            );
+                            clearSelection();
+                            setView("free-list");
+                          }
+                        : undefined
+                    }
                     block={selectedBlock}
                     inspection={inspection}
                     segments={segmentsByBlock.get(selectedBlock.id) ?? []}
@@ -1249,14 +1379,10 @@ const Legend = memo(function Legend({
   mode,
   semanticReady,
   segments = [],
-  logical = false,
-  maxSegmentBytes = 0,
 }: {
   mode: ColorMode;
   semanticReady: boolean;
   segments?: Segment[];
-  logical?: boolean;
-  maxSegmentBytes?: number;
 }) {
   if (mode === "fragmentation")
     return (
@@ -1268,19 +1394,6 @@ const Legend = memo(function Legend({
         <span className="legend-unknown">
           <i />
           Unmeasured allocations
-        </span>
-      </div>
-    );
-  if (mode === "utilization" && logical)
-    return (
-      <div className="legend">
-        <span className="legend-title">SEGMENT FOOTPRINT</span>
-        <span className="gradient-legend" />
-        <span>{formatBytes(0)}</span>
-        <span>{formatBytes(maxSegmentBytes)}</span>
-        <span className="legend-unknown">
-          <i />
-          Unknown
         </span>
       </div>
     );
@@ -1356,12 +1469,10 @@ const Legend = memo(function Legend({
         <i style={{ backgroundColor: roleColors.unknown }} />
         Unknown
       </span>
-      {!logical && (
-        <span className="legend-item">
-          <i style={{ backgroundColor: roleColors.free }} />
-          Free space
-        </span>
-      )}
+      <span className="legend-item">
+        <i style={{ backgroundColor: roleColors.free }} />
+        Free space
+      </span>
     </div>
   );
 });
@@ -1371,16 +1482,16 @@ const LogicalGroups = memo(function LogicalGroups({
   groups,
   selectedId,
   selectedBlockId,
-  mode,
-  maxSegmentBytes,
+  colors,
+  valueColumnKey,
   onPick,
 }: {
   segments: Segment[];
   groups: RowGroupUnit[];
   selectedId: string | null;
   selectedBlockId: number | null;
-  mode: ColorMode;
-  maxSegmentBytes: number;
+  colors: Map<string, SegmentAppearance>;
+  valueColumnKey?: string;
   onPick: (segment: Segment) => void;
 }) {
   const index = useMemo(() => createLogicalLayoutIndex(segments), [segments]);
@@ -1388,6 +1499,19 @@ const LogicalGroups = memo(function LogicalGroups({
     () => buildLogicalTables(segments, groups, index),
     [segments, groups, index],
   );
+  const columnHeaders = useRef(new Map<string, HTMLDivElement>());
+  useEffect(() => {
+    const header = valueColumnKey
+      ? columnHeaders.current.get(valueColumnKey)
+      : undefined;
+    const scroller = header?.closest<HTMLDivElement>(".logical-table-wrap");
+    if (!header || !scroller) return;
+    const relativeLeft =
+      header.getBoundingClientRect().left -
+      scroller.getBoundingClientRect().left;
+    scroller.scrollLeft +=
+      relativeLeft - (scroller.clientWidth - header.clientWidth) / 2;
+  }, [valueColumnKey, tables]);
   return (
     <div className="logical-groups">
       {tables.map((table) => (
@@ -1419,7 +1543,13 @@ const LogicalGroups = memo(function LogicalGroups({
               <div className="logical-cell logical-axis">ROW GROUP</div>
               {table.columns.map((column) => (
                 <div
-                  className="logical-cell logical-column-head"
+                  className={`logical-cell logical-column-head${valueColumnKey === JSON.stringify([table.name, column.name]) ? " value-column-focus" : ""}`}
+                  ref={(node) => {
+                    const key = JSON.stringify([table.name, column.name]);
+                    if (node) columnHeaders.current.set(key, node);
+                    else columnHeaders.current.delete(key);
+                  }}
+                  title={`${column.name} · ${column.type}`}
                   key={column.name}
                 >
                   <strong>{column.name}</strong>
@@ -1441,8 +1571,8 @@ const LogicalGroups = memo(function LogicalGroups({
                       ? selectedBlockId
                       : null
                   }
-                  mode={mode}
-                  maxSegmentBytes={maxSegmentBytes}
+                  colors={colors}
+                  valueColumnKey={valueColumnKey}
                   onPick={onPick}
                 />
               ))}
@@ -1459,16 +1589,16 @@ const LogicalRow = memo(function LogicalRow({
   columns,
   selectedId,
   selectedBlockId,
-  mode,
-  maxSegmentBytes,
+  colors,
+  valueColumnKey,
   onPick,
 }: {
   model: LogicalRowModel;
   columns: { name: string; type: string }[];
   selectedId: string | null;
   selectedBlockId: number | null;
-  mode: ColorMode;
-  maxSegmentBytes: number;
+  colors: Map<string, SegmentAppearance>;
+  valueColumnKey?: string;
   onPick: (segment: Segment) => void;
 }) {
   const { coverage } = model;
@@ -1492,53 +1622,33 @@ const LogicalRow = memo(function LogicalRow({
               <span>—</span>
             </div>
           );
-        const totalBytes = aggregateByteSize(cellSegments);
         return (
           <div
             key={`${group}-${column}`}
             className="logical-cell segment-cell-stack"
           >
-            {cellSegments.length > 1 && (
-              <span className="segment-cell-total">
-                Combined footprint · {formatBytes(totalBytes)}
-              </span>
-            )}
             {cellSegments.map((segment) => {
               const selected =
                 segment.id === selectedId ||
                 segment.blockId === selectedBlockId;
-              const color =
-                mode === "compression"
-                  ? stableColor(segment.compression, compressionPalette)
-                  : mode === "utilization"
-                    ? segmentFootprintColor(segment.byteSize, maxSegmentBytes)
-                    : stableColor(
-                        mode === "column"
-                          ? `${segment.table}.${segment.column}`
-                          : segment.table,
-                        tablePalette,
-                      );
+              const appearance = colors.get(segment.id)!;
+              const outsideColumn =
+                valueColumnKey != null && columnKey(segment) !== valueColumnKey;
               return (
                 <button
                   type="button"
-                  className={`segment-choice ${selected ? "selected" : ""} `}
+                  className={`segment-choice${selected ? " selected" : ""}${segment.blockId < 0 ? " metadata-only" : ""}${outsideColumn ? " outside-value-column" : ""}`}
                   key={segment.id}
-                  style={{ "--block-color": color } as React.CSSProperties}
+                  style={
+                    {
+                      "--block-color": appearance.background,
+                    } as React.CSSProperties
+                  }
                   onClick={() => onPick(segment)}
                   aria-pressed={selected}
-                  aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${formatBytes(segment.byteSize)}, block ${segment.blockId}`}
-                  title={`${segment.column} · ${segment.compression} · block ${segment.blockId}`}
-                >
-                  <span className="segment-cell-name">
-                    {shortName(segment.column, 18)}
-                  </span>
-                  <span className="segment-cell-meta">
-                    {formatBytes(segment.byteSize)} <i />{" "}
-                    {segment.blockId >= 0
-                      ? `Block ${segment.blockId}`
-                      : "Constant · no data block"}
-                  </span>
-                </button>
+                  aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${segment.compression}, ${formatBytes(segment.byteSize)}, ${segment.blockId >= 0 ? `block ${segment.blockId}` : "constant, no data block"}, ${appearance.description}`}
+                  title={`${segment.table}.${segment.column}\nRow group ${segment.rowGroup} · ${segment.compression}\n${formatBytes(segment.byteSize)} · ${segment.blockId >= 0 ? `Block ${segment.blockId}` : "Constant · no data block"}\n${appearance.description}`}
+                />
               );
             })}
           </div>
@@ -1551,10 +1661,12 @@ const LogicalRow = memo(function LogicalRow({
 function CheckpointDetails({
   checkpoint,
   source,
+  onShowFreeList,
   onInspectBytes,
 }: {
   checkpoint: CheckpointHeader;
   source: FileInspection["source"];
+  onShowFreeList?: () => void;
   onInspectBytes: () => void;
 }) {
   return (
@@ -1590,6 +1702,11 @@ function CheckpointDetails({
           value={checkpoint.freeList || "Unknown"}
           mono
         />
+        {onShowFreeList && (
+          <Button variant="secondary" size="sm" onClick={onShowFreeList}>
+            Inspect free list <ArrowRight size={12} />
+          </Button>
+        )}
         <DetailPair
           label="Block count"
           value={formatNumber(checkpoint.blockCount)}
@@ -1621,6 +1738,7 @@ function CheckpointDetails({
 }
 
 function BlockDetails({
+  onShowFreeList,
   block,
   inspection,
   segmentsById,
@@ -1642,6 +1760,7 @@ function BlockDetails({
   onSegmentClick: (segment: Segment) => void;
   onBlockClick: (id: number) => void;
   onBytePage: (offset: number) => void;
+  onShowFreeList?: () => void;
 }) {
   const usedPercent =
     block.usedBytes == null || block.size <= 0
@@ -1667,6 +1786,14 @@ function BlockDetails({
       </div>
       <div className="detail-card">
         <span className="detail-card-kicker">BLOCK PROPERTIES</span>
+        {onShowFreeList && (
+          <Button variant="secondary" size="sm" onClick={onShowFreeList}>
+            {block.role === "free"
+              ? "Show free list entry"
+              : "Inspect free list"}
+            <ArrowRight size={12} />
+          </Button>
+        )}
         <DetailPair label="Block ID" value={block.id} mono />
         <DetailPair
           label="Byte offset"
@@ -1689,6 +1816,42 @@ function BlockDetails({
           mono
         />
         <DetailPair label="Description" value={block.label || "Unknown"} />
+        {block.role === "free" && inspection.freeList && (
+          <>
+            <DetailPair
+              label="Allocation source"
+              value={
+                inspection.freeList.implicitBlockIds.includes(block.id)
+                  ? "Outside checkpoint extent"
+                  : `Checkpoint ${inspection.freeList.checkpoint} free list`
+              }
+            />
+            <DetailPair
+              label="Available for reuse"
+              value={formatBytes(block.size)}
+            />
+          </>
+        )}
+        {inspection.freeList?.chain.some(
+          (node) => node.blockId === block.id,
+        ) && (
+          <DetailPair
+            label="Allocator role"
+            value={`Free-list storage · checkpoint ${inspection.freeList.checkpoint}`}
+          />
+        )}
+        {inspection.freeList?.multiUseBlocks.some(
+          (entry) => entry.blockId === block.id,
+        ) && (
+          <DetailPair
+            label="Shared references"
+            value={
+              inspection.freeList.multiUseBlocks.find(
+                (entry) => entry.blockId === block.id,
+              )!.references
+            }
+          />
+        )}
       </div>
 
       <div className="detail-section">
@@ -1933,12 +2096,14 @@ function HexPreview({ offset, bytes }: { offset: number; bytes: Uint8Array }) {
 }
 
 function SegmentDetails({
+  colorMetric,
   segment,
   inspection,
   blocksById,
   block,
   onBlockClick,
 }: {
+  colorMetric?: { label: string; description: string };
   segment: Segment;
   inspection: FileInspection;
   blocksById: Map<number, FileBlock>;
@@ -1975,6 +2140,12 @@ function SegmentDetails({
         />
         <DetailPair label="Row count" value={formatNumber(segment.rowCount)} />
         <DetailPair label="Byte size" value={formatBytes(segment.byteSize)} />
+        {colorMetric && (
+          <DetailPair
+            label={colorMetric.label}
+            value={colorMetric.description}
+          />
+        )}
         <DetailPair
           label="Block-relative offset"
           value={
@@ -1996,7 +2167,14 @@ function SegmentDetails({
         />
         <DetailPair
           label="Null count"
-          value={formatNumber(segment.nullCount)}
+          value={formatNumber(
+            segment.nullCount ??
+              (nullFraction(segment) === 0
+                ? 0
+                : nullFraction(segment) === 1
+                  ? segment.rowCount
+                  : undefined),
+          )}
         />
         <DetailPair
           label="Statistics"

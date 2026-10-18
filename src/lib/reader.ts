@@ -4,6 +4,7 @@ import type {
   CheckpointHeader,
   FileBlock,
   FileInspection,
+  FreeListState,
 } from "./types";
 
 export const LATEST_STORAGE_VERSION = 69;
@@ -174,6 +175,20 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
   const freeBlockIds = new Set<number>();
   const freeMetadataSubblocks = new Map<number, bigint>();
   const warnings: string[] = [];
+  const freeList: FreeListState = {
+    checkpoint: active.slot,
+    complete: true,
+    root: freePointer
+      ? { blockId: freePointer.blockId, slot: freePointer.subblockIndex }
+      : null,
+    chain: [],
+    blockIds: [],
+    implicitBlockIds: [],
+    metadata: [],
+    multiUseBlocks: [],
+  };
+  for (let id = active.blockCount; id < physicalBlockCount; id++)
+    freeList.implicitBlockIds.push(id);
 
   if (metaPointer) {
     const chain = await readMetadataChain(
@@ -201,12 +216,24 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
       metadataSubblocks,
       metadataLinks,
     );
+    freeList.chain = chain.chain;
+    freeList.complete = !chain.truncated;
     if (chain.truncated) {
       warnings.push(
         "Free-list metadata chain exceeded the browser reader’s bounded scan; free blocks are left unknown.",
       );
     } else {
       const parsedFreeList = parseFreeList(chain.stream, active.blockCount);
+      freeList.blockIds = parsedFreeList.freeBlocks;
+      freeList.multiUseBlocks = parsedFreeList.multiUseBlocks;
+      freeList.metadata = parsedFreeList.freeMetadataSubblocks.map(
+        ([blockId, mask]) => ({
+          blockId,
+          freeSlots: Array.from({ length: 64 }, (_, slot) => slot).filter(
+            (slot) => (mask & (1n << BigInt(slot))) !== 0n,
+          ),
+        }),
+      );
       for (const blockId of parsedFreeList.freeBlocks)
         freeBlockIds.add(blockId);
       for (const [blockId, freeMask] of parsedFreeList.freeMetadataSubblocks)
@@ -282,6 +309,7 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
     activeHeader: active.slot,
     headers,
     blocks,
+    freeList,
     segments: [],
     warnings,
     capabilities: { semantic: false, exactSizes: false, checksums: true },
@@ -460,7 +488,11 @@ async function readMetadataChain(
   verifiedBlocks: Map<number, VerifiedBlock>,
   metadataSubblocks: Map<number, Set<number>>,
   metadataLinks: Map<number, Set<number>>,
-): Promise<{ stream: Uint8Array; truncated: boolean }> {
+): Promise<{
+  stream: Uint8Array;
+  truncated: boolean;
+  chain: FreeListState["chain"];
+}> {
   const payloadSize = blockSize - CHECKSUM_SIZE;
   const metadataBlockSize =
     Math.floor(payloadSize / METADATA_BLOCK_COUNT / 8) * 8;
@@ -469,6 +501,7 @@ async function readMetadataChain(
   let pointer: MetadataPointer | null = root;
   const seen = new Set<string>();
   const chunks: Uint8Array[] = [];
+  const chain: FreeListState["chain"] = [];
   let total = 0;
   let truncated = false;
 
@@ -506,6 +539,12 @@ async function readMetadataChain(
 
     const slot = data.subarray(slotStart, slotStart + metadataBlockSize);
     const nextRaw = readU64(slot, 0);
+    const next = parseMetadataPointer(nextRaw, blockCount, "metadata chain");
+    chain.push({
+      blockId: pointer.blockId,
+      slot: pointer.subblockIndex,
+      next: next ? { blockId: next.blockId, slot: next.subblockIndex } : null,
+    });
     const remaining = MAX_METADATA_STREAM_BYTES - total;
     if (remaining <= 0) {
       truncated = true;
@@ -524,11 +563,7 @@ async function readMetadataChain(
     if (nextRaw === INVALID_POINTER) {
       pointer = null;
     } else {
-      const nextPointer = parseMetadataPointer(
-        nextRaw,
-        blockCount,
-        "metadata chain",
-      );
+      const nextPointer = next;
       if (nextPointer) {
         let links = metadataLinks.get(pointer.blockId);
         if (!links) metadataLinks.set(pointer.blockId, (links = new Set()));
@@ -538,7 +573,7 @@ async function readMetadataChain(
     }
   }
 
-  return { stream: concatenate(chunks, total), truncated };
+  return { stream: concatenate(chunks, total), truncated, chain };
 }
 
 async function readVerifiedBlock(
@@ -563,7 +598,11 @@ async function readVerifiedBlock(
 function parseFreeList(
   stream: Uint8Array,
   blockCount: number,
-): { freeBlocks: number[]; freeMetadataSubblocks: Array<[number, bigint]> } {
+): {
+  freeBlocks: number[];
+  freeMetadataSubblocks: Array<[number, bigint]>;
+  multiUseBlocks: FreeListState["multiUseBlocks"];
+} {
   let cursor = 0;
   const freeCount = readStreamCount(stream, cursor, "free block count");
   cursor += 8;
@@ -595,6 +634,8 @@ function parseFreeList(
   cursor += 8;
   const multiUseBytes = safeMultiply(multiUseCount, 12, "multi-use block list");
   ensureAvailable(stream, cursor, multiUseBytes, "multi-use block list");
+  const multiUseBlocks: FreeListState["multiUseBlocks"] = [];
+  const seenMultiUse = new Set<number>();
   for (let i = 0; i < multiUseCount; i++) {
     const blockId = readI64(stream, cursor + i * 12);
     const useCount = new DataView(
@@ -602,10 +643,18 @@ function parseFreeList(
       stream.byteOffset + cursor + i * 12 + 8,
       4,
     ).getUint32(0, true);
-    if (blockId < 0 || blockId >= blockCount || useCount < 2)
+    if (
+      blockId < 0 ||
+      blockId >= blockCount ||
+      useCount < 2 ||
+      seenMultiUse.has(Number(blockId)) ||
+      seen.has(Number(blockId))
+    )
       throw new Error(
         `Corrupt DuckDB multi-use block entry for block ${blockId}.`,
       );
+    seenMultiUse.add(Number(blockId));
+    multiUseBlocks.push({ blockId: Number(blockId), references: useCount });
   }
   cursor += multiUseBytes;
   ensureAvailable(stream, cursor, 8, "metadata block count");
@@ -629,7 +678,7 @@ function parseFreeList(
     seenMetadataBlocks.add(Number(blockId));
     freeMetadataSubblocks.push([Number(blockId), freeMask]);
   }
-  return { freeBlocks, freeMetadataSubblocks };
+  return { freeBlocks, freeMetadataSubblocks, multiUseBlocks };
 }
 
 function makeBlocks(

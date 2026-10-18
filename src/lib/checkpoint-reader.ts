@@ -32,13 +32,13 @@ class MetadataStore {
       (header) => header.slot === inspection.activeHeader,
     )!.blockCount;
   }
-  decode(raw: bigint) {
+  decode(raw: bigint, allowFree = false) {
     const blockId = safeInteger(raw & BLOCK_MASK),
       slot = Number(raw >> 56n);
     if (raw === INVALID || slot >= 64 || blockId >= this.activeCount)
       throw new Error("Corrupt checkpoint metadata pointer.");
     const block = this.inspection.blocks[blockId + 3];
-    if (!block || block.role === "free")
+    if (!block || (!allowFree && block.role === "free"))
       throw new Error("Corrupt checkpoint pointer references a free block.");
     return { blockId, slot };
   }
@@ -49,13 +49,38 @@ class MetadataStore {
       throw new Error("Corrupt checkpoint metadata offset.");
     const seen = new Set<bigint>();
     const chunks: Uint8Array[] = [];
+    let previousBlock: number | undefined;
     while (raw !== INVALID) {
       if (seen.has(raw) || seen.size >= 4096)
         throw new Error("Corrupt or oversized checkpoint metadata chain.");
       if (++this.traversals > 1_000_000)
         throw new Error("Checkpoint traversal work limit exceeded.");
       seen.add(raw);
-      const { blockId, slot } = this.decode(raw);
+      const { blockId, slot } = this.decode(raw, seen.size > 1);
+      const block = this.inspection.blocks[blockId + 3];
+      const slotStart = block.offset + 8 + slot * this.slotSize;
+      const free =
+        block.role === "free" ||
+        block.ranges.some(
+          (range) =>
+            range.kind === "unused" &&
+            range.offset <= slotStart &&
+            range.offset + range.size > slotStart,
+        );
+      // Unchanged column streams can retain links into released checkpoint tails.
+      // Limit the reader to the allocated prefix; consuming beyond it is truncation.
+      if (free) {
+        if (seen.size === 1)
+          throw new Error(
+            "Corrupt checkpoint pointer references a free metadata slot.",
+          );
+        break;
+      }
+      if (previousBlock != null) {
+        let links = this.links.get(previousBlock);
+        if (!links) this.links.set(previousBlock, (links = new Set()));
+        links.add(blockId);
+      }
       let bytes = this.blocks.get(blockId);
       if (!bytes) {
         if (
@@ -96,12 +121,7 @@ class MetadataStore {
         8,
       ).getBigUint64(0, true);
       chunks.push(bytes.subarray(start + offset, start + this.slotSize));
-      if (next !== INVALID) {
-        const target = this.decode(next);
-        let links = this.links.get(blockId);
-        if (!links) this.links.set(blockId, (links = new Set()));
-        links.add(target.blockId);
-      }
+      previousBlock = blockId;
       raw = next;
       offset = 8;
     }
