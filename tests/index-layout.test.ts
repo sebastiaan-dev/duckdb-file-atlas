@@ -9,7 +9,9 @@ import {
   indexMeasurements,
   isMeasuredIndex,
   moveBufferFocus,
-  occupancyColor,
+  bufferFill,
+  indexUtilization,
+  nodeTypeColor,
   rankAllocators,
   sortedIndexBuffers,
 } from "../src/lib/index-layout";
@@ -148,9 +150,27 @@ describe("linked index graph measurements", () => {
     expect(new Set(tiles.map((tile) => tile.key)).size).toBe(2);
     expect(bufferOccupancy(tiles[0].buffer)).toBe(0.5);
     expect(bufferOccupancy({ ...tiles[0].buffer, storedSlots: 0 })).toBeNull();
-    expect(occupancyColor(0.5)).toContain("50%");
-    expect(occupancyColor(0)).toContain("0%");
-    expect(occupancyColor(1)).toContain("100%");
+    expect(bufferFill(0.5)).toBe("50.0%");
+    expect(bufferFill(0)).toBe("0.0%");
+    expect(bufferFill(1)).toBe("100.0%");
+    expect(bufferFill(null)).toBe("0%");
+  });
+  test("node types map to family colors with a stable fallback for unknown types", () => {
+    const [wide, narrow] = index().allocators;
+    expect(nodeTypeColor({ ...wide, nodeType: "PREFIX" })).toBe(
+      "var(--node-prefix)",
+    );
+    expect(nodeTypeColor({ ...wide, nodeType: "NODE256_LEAF" })).toBe(
+      "var(--node-node256-leaf)",
+    );
+    expect(nodeTypeColor(wide)).toBe("var(--node-other-0)");
+    expect(nodeTypeColor(narrow)).toBe("var(--node-other-1)");
+    expect(nodeTypeColor({ ...wide, ordinal: 4 })).toBe(nodeTypeColor(wide));
+  });
+  test("utilization is occupied / persisted and unknown for partial or empty indexes", () => {
+    expect(indexUtilization(index())).toBe(0.5);
+    expect(indexUtilization(index(false))).toBeNull();
+    expect(indexUtilization({ ...index(), allocationBytes: 0 })).toBeNull();
   });
   test("roving focus is bounded and graph batches are deliberately limited", () => {
     expect(INDEX_ROW_LIMIT).toBe(32);

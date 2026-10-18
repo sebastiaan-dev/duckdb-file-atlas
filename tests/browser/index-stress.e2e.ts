@@ -157,13 +157,7 @@ test("incomplete mask scans never present allocator catalog counts as measured o
   await expect(page.locator(".index-unknown-extent")).toContainText(
     "Unmeasured",
   );
-  await expect(page.locator(".index-metrics strong")).toHaveText([
-    "1",
-    "Unknown",
-    "Unknown",
-    "Unknown",
-    "Unknown",
-  ]);
+  await expect(page.locator(".index-metrics strong")).toHaveText(["Unknown", "Unknown"]);
   await expect(page.locator(".index-allocator-row")).toHaveCount(0);
   await expect(page.locator(".index-buffer-tile")).toHaveCount(0);
   await expect(page.locator(".index-technical")).not.toHaveAttribute(

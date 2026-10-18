@@ -188,9 +188,25 @@ test("graphs link index selection, ranked metrics, allocator filtering and a sta
   const wideTile = page
     .locator('.index-buffer-tile[data-allocator="0"]')
     .first();
+  const narrowTile = page
+    .locator('.index-buffer-tile[data-allocator="1"]')
+    .first();
+  // Hue encodes node type; fill height encodes occupied / stored slots.
+  const encoding = (node: Element) => ({
+    color: (node as HTMLElement).style.getPropertyValue("--tile-color"),
+    fill: (node as HTMLElement).style.getPropertyValue("--tile-fill"),
+  });
+  expect(await wideTile.evaluate(encoding)).toEqual({
+    color: "var(--node-other-0)",
+    fill: "25.0%",
+  });
+  expect(await narrowTile.evaluate(encoding)).toEqual({
+    color: "var(--node-other-1)",
+    fill: "75.0%",
+  });
   const offset = await wideTile.getAttribute("data-offset");
   const color = await wideTile.evaluate(
-    (node) => getComputedStyle(node).backgroundColor,
+    (node) => getComputedStyle(node).backgroundImage,
   );
   await page.getByRole("button", { name: "Slot count", exact: true }).click();
   await expect(page.locator(".index-allocator-row").first()).toContainText(
@@ -206,16 +222,32 @@ test("graphs link index selection, ranked metrics, allocator filtering and a sta
   expect(
     await page
       .locator(`.index-buffer-tile[data-offset="${offset}"]`)
-      .evaluate((node) => getComputedStyle(node).backgroundColor),
+      .evaluate((node) => getComputedStyle(node).backgroundImage),
   ).toBe(color);
   await expect(page.locator(".index-buffer-graph")).toContainText(
     "600 of 1,000 buffers",
   );
   await page
-    .getByRole("button", { name: "All allocators", exact: true })
+    .getByRole("button", { name: "Clear WIDE filter", exact: true })
     .click();
   await expect(
     page.locator('.index-buffer-tile[data-allocator="1"]').first(),
+  ).toBeVisible();
+  await expect(page.locator(".index-buffer-graph")).toContainText(
+    "1,000 buffers",
+  );
+  // Clicking the active allocator row again also clears the filter.
+  const narrowRow = page
+    .locator(".index-allocator-row")
+    .filter({ hasText: "NARROW" });
+  await narrowRow.click();
+  await expect(
+    page.locator('.index-buffer-tile[data-allocator="0"]'),
+  ).toHaveCount(0);
+  await narrowRow.click();
+  await expect(narrowRow).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    page.locator('.index-buffer-tile[data-allocator="0"]').first(),
   ).toBeVisible();
   await row(page, "tiny_index").click();
   await expect(page.locator(".index-selected-heading h3")).toHaveText(
@@ -282,7 +314,7 @@ test("buffer keyboard navigation, one reusable tooltip, touch picking, and file 
   await expect(page.locator(".index-buffer-tile[tabindex='0']")).toHaveCount(1);
   await tiles.first().focus();
   await expect(page.getByRole("tooltip")).toContainText(
-    "occupied / 4 stored slots",
+    "/ 4 slots",
   );
   await tiles.first().press("ArrowRight");
   await expect(tiles.nth(1)).toBeFocused();
@@ -331,7 +363,7 @@ test("100k-buffer model has bounded initial DOM, progressive tiles and progressi
   await openGraphs(page, 100000);
   await expect(page.locator(".index-buffer-tile")).toHaveCount(256);
   await expect(page.locator(".index-buffer-graph")).toContainText(
-    "100,000 of 100,000 buffers",
+    "100,000 buffers",
   );
   expect(await page.locator("*").count()).toBeLessThan(1800);
   await page
@@ -374,11 +406,11 @@ test("desktop two-column and phone stacked graphs fit both themes with a fixed r
       const wide = await page
         .locator('.index-buffer-tile[data-allocator="0"]')
         .first()
-        .evaluate((node) => getComputedStyle(node).backgroundColor);
+        .evaluate((node) => getComputedStyle(node).backgroundImage);
       const narrow = await page
         .locator('.index-buffer-tile[data-allocator="1"]')
         .first()
-        .evaluate((node) => getComputedStyle(node).backgroundColor);
+        .evaluate((node) => getComputedStyle(node).backgroundImage);
       expect(wide).not.toBe(narrow);
       await page
         .locator(".index-allocator-row")
@@ -388,10 +420,10 @@ test("desktop two-column and phone stacked graphs fit both themes with a fixed r
         await page
           .locator(".index-buffer-tile")
           .first()
-          .evaluate((node) => getComputedStyle(node).backgroundColor),
+          .evaluate((node) => getComputedStyle(node).backgroundImage),
       ).toBe(wide);
       await page
-        .getByRole("button", { name: "All allocators", exact: true })
+        .getByRole("button", { name: "Clear WIDE filter", exact: true })
         .click();
     }
   }

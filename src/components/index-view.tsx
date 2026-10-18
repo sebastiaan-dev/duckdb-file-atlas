@@ -1,18 +1,83 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { Button } from "@/components/ui/button";
 import { IndexBufferMap } from "@/components/index-buffer-map";
+import { DetailTip, InfoTip, type DetailRow } from "@/components/index-tooltip";
 import {
   allocatorValue,
   formatIndexBytes as bytes,
+  formatPercent,
   INDEX_ROW_LIMIT,
   indexMeasurements,
+  indexUtilization,
   isMeasuredIndex,
+  nodeTypeColor,
   rankAllocators,
   RAW_LINK_LIMIT,
   sortedIndexBuffers,
   type AllocatorMetric,
 } from "@/lib/index-layout";
-import type { FileInspection, IndexInspection } from "@/lib/types";
+import type {
+  FileInspection,
+  IndexAllocator,
+  IndexInspection,
+} from "@/lib/types";
+
+const share = (value: number, total: number) =>
+  `${total ? (value / total) * 100 : 0}%`;
+
+function indexRows(index: IndexInspection): DetailRow[] {
+  return [
+    ["Persisted", bytes(index.allocationBytes)],
+    ["Occupied", bytes(index.occupiedBytes)],
+    ["Free holes", bytes(index.freeBytes)],
+    ["Mask", bytes(index.maskOverheadBytes)],
+    ["Utilization", formatPercent(indexUtilization(index))],
+  ];
+}
+
+/** Occupied bytes per node type, then free holes and mask, within one envelope. */
+function EnvelopeStack({
+  index,
+  width,
+}: {
+  index: IndexInspection;
+  width?: string;
+}) {
+  const total = index.allocationBytes!;
+  return (
+    <span className="index-stack" style={{ width }}>
+      {index.allocators
+        .filter((allocator) => allocator.occupiedBytes > 0)
+        .map((allocator) => (
+          <i
+            key={allocator.ordinal}
+            data-node-type={allocator.nodeType}
+            style={{
+              width: share(allocator.occupiedBytes, total),
+              background: nodeTypeColor(allocator),
+            }}
+          />
+        ))}
+      <i
+        className="index-free"
+        style={{ width: share(index.freeBytes!, total) }}
+      />
+      <i
+        className="index-mask"
+        style={{ width: share(index.maskOverheadBytes!, total) }}
+      />
+    </span>
+  );
+}
+
+function UtilizationMeter({ ratio }: { ratio: number | null }) {
+  return (
+    <span className="index-meter" aria-hidden="true">
+      <i style={{ width: ratio == null ? 0 : `${ratio * 100}%` }} />
+    </span>
+  );
+}
 
 function SelectedIndex({
   index,
@@ -48,26 +113,34 @@ function SelectedIndex({
     0,
   );
   const selectedClass = ranked.find((row) => row.ordinal === allocator);
+  const utilization = indexUtilization(index);
   return (
     <section className="index-selection" aria-label="Selected index">
       <div className="index-selected-heading">
         <div>
-          <span className="eyebrow">Selected index</span>
           <h3>{index.name}</h3>
           <span>{index.table}</span>
         </div>
-        <strong>
-          {measured
-            ? `${bytes(index.allocationBytes)} persisted`
-            : "Occupancy unknown"}
-        </strong>
+        {measured ? (
+          <DetailTip title={index.name} rows={indexRows(index)}>
+            <div
+              className="index-selected-size"
+              tabIndex={0}
+              aria-label={`${bytes(index.allocationBytes)} persisted, ${formatPercent(utilization)} utilized`}
+            >
+              <strong>{bytes(index.allocationBytes)}</strong>
+              {utilization != null && (
+                <span>
+                  <UtilizationMeter ratio={utilization} />
+                  {formatPercent(utilization)} used
+                </span>
+              )}
+            </div>
+          </DetailTip>
+        ) : (
+          <strong className="index-selected-size">Occupancy unknown</strong>
+        )}
       </div>
-      {measured && (
-        <p className="index-selected-facts">
-          {bytes(index.occupiedBytes)} occupied · {bytes(index.freeBytes)} free
-          stored-slot holes · {bytes(index.maskOverheadBytes)} mask overhead
-        </p>
-      )}
       {!measured ? (
         <p className="index-incomplete">
           {index.reason ??
@@ -78,7 +151,23 @@ function SelectedIndex({
         <div className="index-linked-graphs">
           <section className="index-graph" aria-label="Allocator breakdown">
             <div className="index-graph-heading">
-              <h4>2 · Allocator breakdown</h4>
+              <div className="index-heading-title">
+                <h4>Allocators</h4>
+                <InfoTip label="About allocators">
+                  <p>
+                    One row per ART node type.{" "}
+                    {metric === "bytes"
+                      ? "Bars show occupied slot bytes (slot size × occupied slots)."
+                      : "Bars show occupied slots, not logical capacity."}{" "}
+                    Ranked largest first; empty classes are hidden.
+                  </p>
+                  <p>
+                    Click a row to filter buffers; click it again to clear.
+                    Capacity outside the persisted envelope is not counted as
+                    bytes.
+                  </p>
+                </InfoTip>
+              </div>
               <div
                 className="index-toggle"
                 role="group"
@@ -100,50 +189,21 @@ function SelectedIndex({
                 </button>
               </div>
             </div>
-            <p className="section-caption">
-              {metric === "bytes"
-                ? "Occupied slot bytes (slot size × occupied slots)."
-                : "Occupied slots, not logical capacity."}{" "}
-              Ranked largest first; empty classes hidden.
-            </p>
-            <button
-              type="button"
-              className="index-reset"
-              aria-pressed={allocator == null}
-              onClick={() => setAllocator(null)}
+            <div
+              className="index-allocator-bars"
+              data-filtered={allocator != null || undefined}
             >
-              All allocators
-            </button>
-            <div className="index-allocator-bars">
               {ranked.map((row) => (
-                <button
-                  type="button"
-                  className="index-allocator-row"
+                <AllocatorRow
                   key={row.ordinal}
-                  aria-pressed={allocator === row.ordinal}
-                  title={`${row.nodeType}: ${bytes(row.occupiedBytes)} occupied · ${row.occupiedSlots.toLocaleString()} occupied slots · ${bytes(row.segmentSize)} per slot · ${bytes(row.freeBytes)} free stored-slot holes`}
-                  onClick={() => setAllocator(row.ordinal)}
-                >
-                  <span className="index-allocator-label">
-                    {row.nodeType}
-                    <small>
-                      {bytes(row.segmentSize)} / slot ·{" "}
-                      {row.buffers.length.toLocaleString()} buffers
-                    </small>
-                  </span>
-                  <span className="index-rank-track">
-                    <i
-                      style={{
-                        width: `${max ? (allocatorValue(row, metric) / max) * 100 : 0}%`,
-                      }}
-                    />
-                  </span>
-                  <strong>
-                    {metric === "bytes"
-                      ? bytes(row.occupiedBytes)
-                      : row.occupiedSlots.toLocaleString()}
-                  </strong>
-                </button>
+                  row={row}
+                  metric={metric}
+                  max={max}
+                  pressed={allocator === row.ordinal}
+                  onToggle={() =>
+                    setAllocator(allocator === row.ordinal ? null : row.ordinal)
+                  }
+                />
               ))}
             </div>
             {!ranked.length && (
@@ -152,25 +212,16 @@ function SelectedIndex({
                 or has an inlined root.
               </p>
             )}
-            <p className="section-caption">
-              Click a class to filter buffers. Capacity outside the persisted
-              envelope is not counted as bytes.
-            </p>
           </section>
-          <div>
-            <p className="index-filter-caption">
-              {selectedClass
-                ? `${selectedClass.nodeType} buffers`
-                : "All allocator classes"}
-            </p>
-            <IndexBufferMap
-              key={allocator ?? "all"}
-              tiles={tiles}
-              totalBuffers={buffers.length}
-              selectedBlockId={selectedBlockId}
-              onPick={onPick}
-            />
-          </div>
+          <IndexBufferMap
+            key={allocator ?? "all"}
+            tiles={tiles}
+            totalBuffers={buffers.length}
+            filter={selectedClass}
+            onClearFilter={() => setAllocator(null)}
+            selectedBlockId={selectedBlockId}
+            onPick={onPick}
+          />
         </div>
       )}
       <details
@@ -266,6 +317,72 @@ function SelectedIndex({
   );
 }
 
+function AllocatorRow({
+  row,
+  metric,
+  max,
+  pressed,
+  onToggle,
+}: {
+  row: IndexAllocator;
+  metric: AllocatorMetric;
+  max: number;
+  pressed: boolean;
+  onToggle: () => void;
+}) {
+  const color = nodeTypeColor(row);
+  return (
+    <DetailTip
+      title={row.nodeType}
+      swatch={color}
+      rows={[
+        ["Slot size", bytes(row.segmentSize)],
+        ["Buffers", row.buffers.length.toLocaleString()],
+        ["Occupied slots", row.occupiedSlots.toLocaleString()],
+        ["Occupied", bytes(row.occupiedBytes)],
+        ["Free holes", bytes(row.freeBytes)],
+      ]}
+      hint={pressed ? "Click to show all buffers" : "Click to filter buffers"}
+    >
+      <button
+        type="button"
+        className="index-allocator-row"
+        aria-pressed={pressed}
+        style={{ "--type-color": color } as CSSProperties}
+        onClick={onToggle}
+      >
+        <span className="index-allocator-label">
+          <i className="index-swatch" />
+          {row.nodeType}
+        </span>
+        <span className="index-rank-track">
+          <i
+            style={{
+              width: `${max ? (allocatorValue(row, metric) / max) * 100 : 0}%`,
+            }}
+          />
+        </span>
+        <strong>
+          {metric === "bytes"
+            ? bytes(row.occupiedBytes)
+            : row.occupiedSlots.toLocaleString()}
+        </strong>
+      </button>
+    </DetailTip>
+  );
+}
+
+/** Node types present across the whole inspection, in allocator order. */
+function presentNodeTypes(indexes: IndexInspection[]): IndexAllocator[] {
+  const seen = new Map<string, IndexAllocator>();
+  for (const index of indexes)
+    if (isMeasuredIndex(index))
+      for (const allocator of index.allocators)
+        if (allocator.occupiedBytes > 0 && !seen.has(allocator.nodeType))
+          seen.set(allocator.nodeType, allocator);
+  return [...seen.values()].sort((a, b) => a.ordinal - b.ordinal);
+}
+
 export const IndexView = memo(function IndexView({
   inspection,
   query,
@@ -303,6 +420,7 @@ export const IndexView = memo(function IndexView({
     () => indexMeasurements(indexes ?? []),
     [indexes],
   );
+  const nodeTypes = useMemo(() => presentNodeTypes(indexes ?? []), [indexes]);
   const selected =
     (selection?.inspection === inspection
       ? indexes?.find((index) => index.id === selection.id)
@@ -319,9 +437,9 @@ export const IndexView = memo(function IndexView({
       ? visibleState.limit
       : INDEX_ROW_LIMIT;
   const { totals, measuredCount, axisMax } = measurements;
-  return (
-    <div className="index-view">
-      {!indexes?.length ? (
+  if (!indexes?.length)
+    return (
+      <div className="index-view">
         <div className="logical-empty-state">
           <h3>No recorded index details</h3>
           <p>
@@ -330,90 +448,127 @@ export const IndexView = memo(function IndexView({
             may not include index details.
           </p>
         </div>
-      ) : (
-        <>
-          <div className="index-metrics">
-            <div>
-              <span>Recorded indexes</span>
-              <strong>{indexes.length.toLocaleString()}</strong>
-            </div>
-            <div>
-              <span>Persisted envelope</span>
-              <strong>
-                {bytes(measuredCount ? totals.allocationBytes : null)}
-              </strong>
-            </div>
-            <div>
-              <span>Occupied slot bytes</span>
-              <strong>
-                {bytes(measuredCount ? totals.occupiedBytes : null)}
-              </strong>
-            </div>
-            <div>
-              <span>Free stored-slot holes</span>
-              <strong>{bytes(measuredCount ? totals.freeBytes : null)}</strong>
-            </div>
-            <div>
-              <span>Mask overhead</span>
-              <strong>
-                {bytes(measuredCount ? totals.maskOverheadBytes : null)}
-              </strong>
-            </div>
+      </div>
+    );
+  const complete = measuredCount === indexes.length;
+  const utilization =
+    measuredCount && totals.allocationBytes
+      ? totals.occupiedBytes / totals.allocationBytes
+      : null;
+  const coverage = `${measuredCount.toLocaleString()} of ${indexes.length.toLocaleString()} indexes completely measured`;
+  const unmeasured = filtered.some((index) => !isMeasuredIndex(index));
+  return (
+    <Tooltip.Provider delayDuration={250}>
+      <div className="index-view">
+        <div className="index-metrics">
+          <div>
+            <span>Persisted</span>
+            <strong>
+              {bytes(measuredCount ? totals.allocationBytes : null)}
+            </strong>
           </div>
-          <p className="section-caption index-coverage">
-            Measured coverage: {measuredCount.toLocaleString()} of{" "}
-            {indexes.length.toLocaleString()} indexes completely measured.
-            Totals include only measured indexes. Free stored slots are holes
-            within persisted envelopes, not unallocated block tails, physical
-            gaps or whole reusable free blocks.
+          <div>
+            <span className="index-heading-title">
+              Slot utilization
+              <InfoTip label="About index storage totals">
+                <dl className="index-tip-totals">
+                  <div>
+                    <dt>Occupied slots</dt>
+                    <dd>{bytes(measuredCount ? totals.occupiedBytes : null)}</dd>
+                  </div>
+                  <div>
+                    <dt>Free holes</dt>
+                    <dd>{bytes(measuredCount ? totals.freeBytes : null)}</dd>
+                  </div>
+                  <div>
+                    <dt>Mask overhead</dt>
+                    <dd>
+                      {bytes(measuredCount ? totals.maskOverheadBytes : null)}
+                    </dd>
+                  </div>
+                </dl>
+                <p>
+                  Utilization is occupied slot bytes / persisted allocator
+                  envelope. Free holes are unoccupied slots within persisted
+                  envelopes, not unallocated block tails, physical gaps or whole
+                  reusable free blocks.
+                </p>
+                {complete && <p>{coverage}.</p>}
+              </InfoTip>
+            </span>
+            <strong>
+              {formatPercent(utilization)}
+              {utilization != null && <UtilizationMeter ratio={utilization} />}
+            </strong>
+          </div>
+        </div>
+        {!complete && (
+          <p className="index-coverage">
+            {coverage}. Totals include only measured indexes.
           </p>
-          <section
-            className="index-comparison"
-            aria-label="Index comparison"
-            data-axis-max={axisMax}
-          >
-            <div className="index-graph-heading">
-              <h3>1 · Compare persisted indexes</h3>
-              <span>
-                {filtered.length.toLocaleString()} of{" "}
-                {indexes.length.toLocaleString()} indexes
-              </span>
+        )}
+        <section
+          className="index-comparison"
+          aria-label="Index comparison"
+          data-axis-max={axisMax}
+        >
+          <div className="index-graph-heading">
+            <div className="index-heading-title">
+              <h3>Storage by index</h3>
+              <InfoTip label="About index comparison">
+                <p>
+                  Each bar is an index's persisted allocator envelope: occupied
+                  slots colored by node type, then free holes and mask overhead.
+                  All bars share one byte scale across the full file, so search
+                  never rescales them.
+                </p>
+              </InfoTip>
             </div>
-            <div className="index-comparison-legend">
-              <span>
-                <i className="index-occupied" />
-                Occupied slots
+            <span>
+              {filtered.length === indexes.length
+                ? `${indexes.length.toLocaleString()} indexes`
+                : `${filtered.length.toLocaleString()} of ${indexes.length.toLocaleString()} indexes`}
+            </span>
+          </div>
+          <div className="index-comparison-legend">
+            {nodeTypes.map((allocator) => (
+              <span key={allocator.nodeType}>
+                <i style={{ background: nodeTypeColor(allocator) }} />
+                {allocator.nodeType}
               </span>
-              <span>
-                <i className="index-free" />
-                Free holes
-              </span>
-              <span>
-                <i className="index-mask" />
-                Mask
-              </span>
+            ))}
+            <span>
+              <i className="index-free" />
+              Free holes
+            </span>
+            <span>
+              <i className="index-mask" />
+              Mask
+            </span>
+            {unmeasured && (
               <span>
                 <i className="index-unknown" />
-                Unknown extent
+                Unknown
               </span>
-            </div>
-            <div className="index-axis">
-              <span>Shared byte axis · full file</span>
-              <span>0 — {bytes(axisMax)}</span>
-            </div>
-            {filtered.slice(0, visible).map((index) => {
-              const measured = isMeasuredIndex(index);
-              return (
+            )}
+          </div>
+          {filtered.slice(0, visible).map((index) => {
+            const measured = isMeasuredIndex(index);
+            return (
+              <DetailTip
+                key={index.id}
+                title={index.name}
+                subtitle={index.table}
+                rows={
+                  measured
+                    ? indexRows(index)
+                    : [["Occupancy", "Unknown"], ["Extent", "Unknown"]]
+                }
+              >
                 <button
                   type="button"
                   className="index-comparison-row"
-                  key={index.id}
                   aria-pressed={selected?.id === index.id}
-                  title={
-                    measured
-                      ? `${index.name}: ${bytes(index.allocationBytes)} persisted · ${bytes(index.occupiedBytes)} occupied · ${bytes(index.freeBytes)} free holes · ${bytes(index.maskOverheadBytes)} mask overhead`
-                      : `${index.name}: occupancy and envelope extent unknown`
-                  }
                   onClick={() => setSelection({ inspection, id: index.id })}
                 >
                   <span className="index-comparison-name">
@@ -429,26 +584,10 @@ export const IndexView = memo(function IndexView({
                     }
                   >
                     {measured ? (
-                      <span
-                        className="index-stack"
-                        style={{
-                          width: `${axisMax ? (index.allocationBytes! / axisMax) * 100 : 0}%`,
-                        }}
-                      >
-                        {[
-                          ["index-occupied", index.occupiedBytes],
-                          ["index-free", index.freeBytes],
-                          ["index-mask", index.maskOverheadBytes],
-                        ].map(([className, value]) => (
-                          <i
-                            key={String(className)}
-                            className={String(className)}
-                            style={{
-                              width: `${index.allocationBytes ? (Number(value) / index.allocationBytes) * 100 : 0}%`,
-                            }}
-                          />
-                        ))}
-                      </span>
+                      <EnvelopeStack
+                        index={index}
+                        width={share(index.allocationBytes!, axisMax)}
+                      />
                     ) : (
                       <span className="index-unknown index-unknown-extent">
                         Unmeasured · extent unknown
@@ -462,41 +601,41 @@ export const IndexView = memo(function IndexView({
                     )}
                   </strong>
                 </button>
-              );
-            })}
-            {!filtered.length && (
-              <p className="empty-search">No indexes match “{query}”.</p>
-            )}
-            {visible < filtered.length && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  setVisible({ inspection, limit: visible + INDEX_ROW_LIMIT })
-                }
-              >
-                Load more indexes
-              </Button>
-            )}
-          </section>
-          {selected && (
-            <>
-              {!filtered.some((index) => index.id === selected.id) && (
-                <p className="section-caption">
-                  Selected index is hidden by search. Choose another comparison
-                  row to change selection.
-                </p>
-              )}
-              <SelectedIndex
-                key={selected.id}
-                index={selected}
-                selectedBlockId={selectedBlockId}
-                onPick={onPick}
-              />
-            </>
+              </DetailTip>
+            );
+          })}
+          {!filtered.length && (
+            <p className="empty-search">No indexes match “{query}”.</p>
           )}
-        </>
-      )}
-    </div>
+          {visible < filtered.length && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setVisible({ inspection, limit: visible + INDEX_ROW_LIMIT })
+              }
+            >
+              Load more indexes
+            </Button>
+          )}
+        </section>
+        {selected && (
+          <>
+            {!filtered.some((index) => index.id === selected.id) && (
+              <p className="section-caption">
+                Selected index is hidden by search. Choose another row to change
+                selection.
+              </p>
+            )}
+            <SelectedIndex
+              key={selected.id}
+              index={selected}
+              selectedBlockId={selectedBlockId}
+              onPick={onPick}
+            />
+          </>
+        )}
+      </div>
+    </Tooltip.Provider>
   );
 });

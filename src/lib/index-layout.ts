@@ -106,12 +106,41 @@ export function bufferOccupancy(buffer: IndexBuffer): number | null {
     ? Math.max(0, Math.min(1, buffer.segmentCount / buffer.storedSlots))
     : null;
 }
-/** Fixed ramp, independent of index, allocator filter, pagination, or search. */
-export function occupancyColor(ratio: number | null): string {
-  return ratio == null
-    ? "var(--chart-unknown)"
-    : `color-mix(in srgb, var(--index-occupied) ${ratio * 100}%, var(--index-empty))`;
+/**
+ * ART node types grouped by family: prefixes, inner nodes (light → dark as
+ * fan-out grows) and leaves (same progression). Values are CSS variables so
+ * both themes share one mapping; unknown types fall back to a stable palette.
+ */
+const NODE_TYPE_VARIABLES: Record<string, string> = {
+  PREFIX: "--node-prefix",
+  NODE4: "--node-node4",
+  NODE16: "--node-node16",
+  NODE48: "--node-node48",
+  NODE256: "--node-node256",
+  LEAF: "--node-leaf",
+  NODE7_LEAF: "--node-node7-leaf",
+  NODE15_LEAF: "--node-node15-leaf",
+  NODE256_LEAF: "--node-node256-leaf",
+};
+export const FALLBACK_NODE_COLORS = 4;
+export function nodeTypeColor(allocator: IndexAllocator): string {
+  const variable = NODE_TYPE_VARIABLES[allocator.nodeType];
+  return variable
+    ? `var(${variable})`
+    : `var(--node-other-${Math.abs(allocator.ordinal) % FALLBACK_NODE_COLORS})`;
 }
+/** Occupied share of persisted bytes; null when unknown or nothing persisted. */
+export function indexUtilization(index: IndexInspection): number | null {
+  return isMeasuredIndex(index) && index.allocationBytes! > 0
+    ? index.occupiedBytes! / index.allocationBytes!
+    : null;
+}
+/** Fill height for a buffer tile: occupied / stored slots on a fixed 0–100% scale. */
+export function bufferFill(ratio: number | null): string {
+  return ratio == null ? "0%" : `${(ratio * 100).toFixed(1)}%`;
+}
+export const formatPercent = (ratio: number | null) =>
+  ratio == null ? "Unknown" : `${(ratio * 100).toFixed(1)}%`;
 export function moveBufferFocus(
   position: number,
   key: string,

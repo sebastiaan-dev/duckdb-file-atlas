@@ -43,12 +43,16 @@ test("native named indexes expose persisted allocator occupancy, block ownership
   ).toBeVisible();
   await page.getByRole("tab", { name: "Indexes", exact: true }).click();
   await expect(page.locator(".index-comparison-row")).toHaveCount(3);
-  await expect(page.locator(".index-view")).toContainText(
+  // Full coverage stays out of the way, behind the totals info tooltip.
+  await expect(page.locator(".index-coverage")).toHaveCount(0);
+  await page.getByLabel("About index storage totals").hover();
+  await expect(page.getByRole("tooltip")).toContainText(
     "3 of 3 indexes completely measured",
   );
-  await expect(page.locator(".index-view")).toContainText(
+  await expect(page.getByRole("tooltip")).toContainText(
     "not unallocated block tails",
   );
+  await page.mouse.move(0, 0);
   await page.getByLabel("Search indexes or tables").fill("no such index");
   await expect(page.locator(".index-comparison-row")).toHaveCount(0);
   await expect(page.locator(".index-view")).toContainText("No indexes match");
@@ -63,9 +67,11 @@ test("native named indexes expose persisted allocator occupancy, block ownership
     "",
   );
   await expect(page.locator(".index-buffer-tile").first()).toBeVisible();
-  await expect(page.locator(".index-view")).toContainText(
+  await page.getByLabel("About allocators").click();
+  await expect(page.getByRole("tooltip")).toContainText(
     "Capacity outside the persisted envelope is not counted as bytes",
   );
+  await page.getByLabel("About allocators").click();
   await page.locator(".index-buffer-tile").first().click();
   await expect(
     page.getByRole("tab", { name: "Indexes", exact: true }),
