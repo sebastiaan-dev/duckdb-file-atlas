@@ -151,6 +151,15 @@ export const FreeListView = memo(function FreeListView({
           </small>
         </div>
       </div>
+      {(state.trimmedBlocks ?? 0) > 0 && (
+        <p className="free-list-note">
+          DuckDB already returned {count(state.trimmedBlocks!)} trailing free
+          block{state.trimmedBlocks === 1 ? "" : "s"} (
+          {bytes(state.trimmedBlocks! * inspection.blockSize)}) to the
+          filesystem after this checkpoint. The header still counts them, but
+          they are no longer part of the file and are not listed here.
+        </p>
+      )}
       {!state.complete && (
         <p className="free-list-note">
           The bounded free-list scan is incomplete. Listed free-block totals are

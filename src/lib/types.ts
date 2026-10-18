@@ -87,6 +87,11 @@ export interface FreeListState {
   implicitBlockIds: number[];
   metadata: { blockId: number; freeSlots: number[] }[];
   multiUseBlocks: { blockId: number; references: number }[];
+  /**
+   * Blocks the active header counts but DuckDB already truncated from the end
+   * of the file after the checkpoint. They hold no data and have no bytes.
+   */
+  trimmedBlocks?: number;
 }
 /** Scalar integer Values are decimal strings to preserve uint64 precision. */
 export type IndexOption = null | boolean | number | string | IndexOption[];

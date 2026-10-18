@@ -144,14 +144,27 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
     );
   }
   const requiredFileSize = DATA_START + active.blockCount * active.blockSize;
-  if (!Number.isSafeInteger(requiredFileSize) || file.size < requiredFileSize) {
+  if (!Number.isSafeInteger(requiredFileSize))
     throw new Error(
-      `This DuckDB file is truncated: the active header requires ${formatBytes(requiredFileSize)} of data.`,
+      `The active checkpoint records an impossible block count (${active.blockCount}).`,
     );
-  }
   const physicalBlockCount = Math.floor(
     Math.max(0, file.size - DATA_START) / active.blockSize,
   );
+  // DuckDB writes the header's block count before releasing the blocks this
+  // checkpoint freed, then truncates trailing free blocks from the file
+  // (SingleFileBlockManager::Truncate) without rewriting the header. A shorter,
+  // block-aligned file is therefore valid; any live reference into the missing
+  // tail is still rejected below. A partial trailing block means a cut copy.
+  const trimmedBlocks = Math.max(0, active.blockCount - physicalBlockCount);
+  if (
+    file.size < requiredFileSize &&
+    (file.size - DATA_START) % active.blockSize !== 0
+  ) {
+    throw new Error(
+      `This DuckDB file is truncated: it ends partway through block ${physicalBlockCount}, and the active header requires ${formatBytes(requiredFileSize)} of data.`,
+    );
+  }
   if (physicalBlockCount > MAX_PHYSICAL_BLOCKS) {
     throw new Error(
       `This file contains ${physicalBlockCount.toLocaleString()} data blocks, above the browser reader’s ${MAX_PHYSICAL_BLOCKS.toLocaleString()}-block visualization limit.`,
@@ -175,6 +188,10 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
   const freeBlockIds = new Set<number>();
   const freeMetadataSubblocks = new Map<number, bigint>();
   const warnings: string[] = [];
+  if (trimmedBlocks > 0)
+    warnings.push(
+      `The active header records ${active.blockCount.toLocaleString()} blocks, but the file holds ${physicalBlockCount.toLocaleString()}: DuckDB released ${trimmedBlocks.toLocaleString()} trailing free block${trimmedBlocks === 1 ? "" : "s"} (${formatBytes(trimmedBlocks * active.blockSize)}) to the filesystem after this checkpoint. They hold no data and are not shown.`,
+    );
   const freeList: FreeListState = {
     checkpoint: active.slot,
     complete: true,
@@ -186,6 +203,7 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
     implicitBlockIds: [],
     metadata: [],
     multiUseBlocks: [],
+    trimmedBlocks,
   };
   for (let id = active.blockCount; id < physicalBlockCount; id++)
     freeList.implicitBlockIds.push(id);
@@ -224,6 +242,15 @@ export async function inspectPhysicalFile(file: File): Promise<FileInspection> {
       );
     } else {
       const parsedFreeList = parseFreeList(chain.stream, active.blockCount);
+      // Serialized entries in the trimmed tail no longer exist in the file.
+      parsedFreeList.freeBlocks = parsedFreeList.freeBlocks.filter(
+        (blockId) => blockId < physicalBlockCount,
+      );
+      for (const [blockId] of parsedFreeList.freeMetadataSubblocks)
+        if (blockId >= physicalBlockCount)
+          throw new Error(
+            `This DuckDB file is truncated: metadata block ${blockId} lies beyond the end of the file (${physicalBlockCount} blocks present).`,
+          );
       freeList.blockIds = parsedFreeList.freeBlocks;
       freeList.multiUseBlocks = parsedFreeList.multiUseBlocks;
       freeList.metadata = parsedFreeList.freeMetadataSubblocks.map(
@@ -519,6 +546,10 @@ async function readMetadataChain(
     if (pointer.blockId >= blockCount)
       throw new Error(
         `Corrupt DuckDB metadata chain: block ${pointer.blockId} is outside the active checkpoint.`,
+      );
+    if (DATA_START + (pointer.blockId + 1) * blockSize > file.size)
+      throw new Error(
+        `This DuckDB file is truncated: metadata block ${pointer.blockId} lies beyond the end of the file.`,
       );
 
     const verified = await readVerifiedBlock(

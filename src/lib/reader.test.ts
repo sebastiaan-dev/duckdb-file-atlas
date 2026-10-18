@@ -257,7 +257,54 @@ describe("DuckDB file reader", () => {
       implicitBlockIds: [],
       metadata: [],
       multiUseBlocks: [],
+      trimmedBlocks: 0,
     });
+  });
+
+  it("accepts a file DuckDB truncated after writing the header's block count", async () => {
+    // DuckDB writes block_count before releasing this checkpoint's freed
+    // blocks, then trims trailing free blocks without rewriting the header.
+    const blockSize = DEFAULT_BLOCK_SIZE;
+    const full = makeFixture({
+      blockCount: 5,
+      slot2: { freeList: makePointer(0) },
+    });
+    writeMetadataBlock(full, 0, blockSize, (payload) => {
+      putU64(payload, 0, INVALID);
+      putU64(payload, 8, 2n); // two serialized free blocks…
+      putU64(payload, 16, 1n);
+      putU64(payload, 24, 4n); // …one of them in the trimmed tail
+      putU64(payload, 32, 0n);
+      putU64(payload, 40, 0n);
+    });
+    const trimmed = full.slice(0, DATA_START + 3 * blockSize);
+    const result = await inspectFile(asFile(trimmed));
+    expect(result.headers.find((h) => h.slot === 2)?.blockCount).toBe(5);
+    expect(result.blocks.filter((block) => block.id >= 0)).toHaveLength(3);
+    expect(result.freeList?.blockIds).toEqual([1]);
+    expect(result.freeList?.trimmedBlocks).toBe(2);
+    expect(result.warnings.join(" ")).toMatch(
+      /records 5 blocks, but the file holds 3.*released 2 trailing free blocks/,
+    );
+  });
+
+  it("rejects a copy cut partway through a block", async () => {
+    const bytes = makeFixture({ blockCount: 3 });
+    await expect(
+      inspectFile(
+        asFile(bytes.slice(0, DATA_START + DEFAULT_BLOCK_SIZE + 100)),
+      ),
+    ).rejects.toThrow(/ends partway through block 1/);
+  });
+
+  it("rejects live metadata that lies in a missing file tail", async () => {
+    const bytes = makeFixture({
+      blockCount: 3,
+      slot2: { metaBlock: makePointer(2) },
+    });
+    await expect(
+      inspectFile(asFile(bytes.slice(0, DATA_START + 2 * DEFAULT_BLOCK_SIZE))),
+    ).rejects.toThrow(/metadata block 2 lies beyond the end of the file/);
   });
 
   it("tracks slot-level chains, metadata masks and shared references without BigInt serialization", async () => {
