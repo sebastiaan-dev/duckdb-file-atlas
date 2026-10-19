@@ -233,7 +233,11 @@ function Workspace({
     drawerRef,
   } = sidebar;
   const [view, setView] = useState<ViewMode>("physical");
-  const [colorMode, setColorMode] = useState<ColorMode>("role");
+  // Table ownership is the most telling default; files without decoded
+  // checkpoint metadata can only be colored by storage role.
+  const [colorMode, setColorMode] = useState<ColorMode>(() =>
+    inspection.capabilities.semantic ? "table" : "role",
+  );
   const [logicalColorMode, setLogicalColorMode] =
     useState<LogicalColorMode>("compression");
   const [valueColumnKey, setValueColumnKey] = useState("");

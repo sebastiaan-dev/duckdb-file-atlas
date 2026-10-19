@@ -31,7 +31,8 @@ test("Indexes has empty help on no-index files without logical color controls", 
     page.getByRole("heading", { name: "No recorded index details" }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Physical map", exact: true }).click();
-  await expect(page.getByLabel("Color blocks by")).toHaveValue("role");
+  // A fresh workspace starts with the default table coloring.
+  await expect(page.getByLabel("Color blocks by")).toHaveValue("table");
 });
 
 test("native named indexes expose persisted allocator occupancy, block ownership, and checkpoint deletes", async ({
