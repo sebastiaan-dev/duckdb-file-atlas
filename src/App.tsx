@@ -232,7 +232,7 @@ function Workspace({
   const [logicalColorMode, setLogicalColorMode] =
     useState<LogicalColorMode>("compression");
   const [valueColumnKey, setValueColumnKey] = useState("");
-  const [cellSize, setCellSize] = useState(8);
+  const [cellSize, setCellSize] = useState(24);
   const [showValidity, setShowValidity] = useState(true);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -996,7 +996,14 @@ function Workspace({
                     </div>
                   </div>
                   {view === "physical" && (
-                    <label className="tile-size-control">
+                    <label
+                      className="tile-size-control"
+                      style={
+                        {
+                          "--tile-fill": (cellSize - 4) / (24 - 4),
+                        } as React.CSSProperties
+                      }
+                    >
                       <span>Tile size</span>
                       <input
                         type="range"

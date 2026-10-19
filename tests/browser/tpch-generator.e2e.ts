@@ -36,7 +36,7 @@ async function trackWorkers(page: Page) {
 
 // These intentionally use the real, pinned CDN runtime/extension. Run with
 // network access; a mocked worker cannot verify a checkpointed database export.
-for (const scale of [0.01, 0.1]) {
+for (const scale of [0.01, 0.1, 1]) {
   test(`generates, downloads and opens a real v1.5.0 TPC-H database at SF ${scale}`, async ({
     page,
   }) => {
@@ -54,7 +54,7 @@ for (const scale of [0.01, 0.1]) {
     await expect(
       page.getByRole("button", { name: "Generate TPC-H", exact: true }),
     ).toBeVisible();
-    await expect(page.getByLabel("TPC-H scale factor")).toHaveValue("0.01");
+    await expect(page.getByLabel("TPC-H scale factor")).toHaveValue("1");
     expect(runtimeRequests).toEqual([]);
     await page.getByLabel("TPC-H scale factor").selectOption(String(scale));
 

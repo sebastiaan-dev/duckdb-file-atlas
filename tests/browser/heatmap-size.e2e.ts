@@ -11,7 +11,7 @@ async function openMap(page: Page) {
   ).toBeVisible();
   await expect(
     page.getByRole("slider", { name: "Block tile size" }),
-  ).toHaveValue("8");
+  ).toHaveValue("24");
   await expect(page.locator(".heatmap-cell")).toHaveCount(200);
 }
 
@@ -44,10 +44,13 @@ async function expectGeometry(page: Page, size: number) {
   return columns;
 }
 
-test("default tiles are compact squares, fill available width without a 32-column cap and preserve file order", async ({
+test("default tiles are 24 px squares, compact tiles fill available width without a 32-column cap and preserve file order", async ({
   page,
 }) => {
   await openMap(page);
+  await expectGeometry(page, 24);
+  await expect(page.locator(".tile-size-control output")).toHaveText("24 px");
+  await page.getByRole("slider", { name: "Block tile size" }).fill("8");
   const columns = await expectGeometry(page, 8);
   expect(columns).toBeGreaterThan(32);
   expect(

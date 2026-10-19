@@ -2,6 +2,7 @@ import "./tpch-generator.css";
 import { useEffect, useId, useRef, useState } from "react";
 import { Database, Download, LoaderCircle } from "lucide-react";
 import {
+  DEFAULT_TPCH_SCALE_FACTOR,
   generateTpchDatabase,
   tpchGenerationError,
   type TpchScaleFactor,
@@ -19,7 +20,9 @@ export function TpchGenerator({
   disabled = false,
 }: TpchGeneratorProps) {
   const id = useId();
-  const [scaleFactor, setScaleFactor] = useState<TpchScaleFactor>(0.01);
+  const [scaleFactor, setScaleFactor] = useState<TpchScaleFactor>(
+    DEFAULT_TPCH_SCALE_FACTOR,
+  );
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState(false);
   const [progress, setProgress] = useState("");
@@ -84,7 +87,7 @@ export function TpchGenerator({
     active.current?.abort();
     active.current = null;
     setBusy(false);
-    setProgress("Generation cancelled. You can try again.");
+    setProgress("Generation cancelled.");
   }
 
   async function open() {
@@ -114,7 +117,7 @@ export function TpchGenerator({
         </span>
         <div>
           <h2 id={`${id}-heading`}>Generate a TPC-H sample</h2>
-          <p>No file handy? Create one in your browser.</p>
+          <p>No file? Create one in your browser.</p>
         </div>
       </div>
       <div className="tpch-generator-controls">
@@ -124,11 +127,12 @@ export function TpchGenerator({
           value={scaleFactor}
           disabled={busy || opening || disabled}
           onChange={(event) =>
-            setScaleFactor(event.target.value === "0.1" ? 0.1 : 0.01)
+            setScaleFactor(Number(event.target.value) as TpchScaleFactor)
           }
         >
-          <option value="0.01">0.01 — small (recommended)</option>
-          <option value="0.1">0.1 — larger (more memory)</option>
+          <option value="1">1 · standard</option>
+          <option value="0.1">0.1 · medium</option>
+          <option value="0.01">0.01 · small</option>
         </select>{" "}
         <button
           type="button"
@@ -149,9 +153,8 @@ export function TpchGenerator({
         )}
       </div>
       <p className="tpch-generator-privacy" id={`${id}-privacy`}>
-        Downloads DuckDB WASM and TPC-H from jsDelivr and extensions.duckdb.org.
-        Data stays in your browser and is never uploaded. Generation can use
-        several hundred MB of memory.
+        Downloads DuckDB-WASM and the TPC-H extension. Larger scale factors use
+        more memory.
       </p>
       <p role="status" aria-live="polite" aria-atomic="true">
         {progress}
@@ -164,8 +167,8 @@ export function TpchGenerator({
       {file && downloadURL && (
         <div className="tpch-generator-result">
           <p className="tpch-format-note">
-            Eight TPC-H tables in v1.5.0 storage format. This format does not
-            record exact column segment sizes; the inspector keeps them unknown.
+            Eight tables in v1.5.0 storage, which does not record exact segment
+            sizes.
           </p>
           <a href={downloadURL} download={file.name}>
             <Download size={14} aria-hidden="true" /> Download .duckdb

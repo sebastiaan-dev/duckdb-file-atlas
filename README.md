@@ -16,7 +16,7 @@ The exporter currently targets v2.0.0 storage and uses a compatible, read-only D
 
 ## Interface
 
-The database summary starts collapsed to a single line (file name, key figures, storage-by-role rail, notes) and expands to the full metrics card; the sidebar collapses to an icon rail with the toolbar button or `[`; both choices are remembered. Below 1080 px the sidebar opens as a drawer. The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and has a **Tile size** slider from 4–24 px, defaulting to compact 8 px squares. Columns adapt to the available width so small tiles reveal the overall file structure rather than stretching to fill a fixed column count. Search dimming, pointer-target highlights, and bounded tooltips remain available. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block.
+The database summary starts collapsed to a single line (file name, key figures, storage-by-role rail, notes) and expands to the full metrics card; the sidebar collapses to an icon rail with the toolbar button or `[`; both choices are remembered. Below 1080 px the sidebar opens as a drawer. The light and dark themes share soft inset panels, clear storage metrics, and a dense disk heatmap. Change themes with the sun/moon control; the preference is stored locally. The physical map preserves byte-offset order and has a **Tile size** slider from 4–24 px, defaulting to 24 px squares. Columns adapt to the available width so smaller tiles reveal the overall file structure rather than stretching to fill a fixed column count. Search dimming, pointer-target highlights, and bounded tooltips remain available. Use the arrow keys to explore the heatmap, then Enter or Space to inspect a block.
 
 The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](https://bklit.com/docs/components/heatmap-chart) to physical block IDs. It does not use calendar dates or add placeholder blocks. The implementation uses the existing React/shadcn stack without a new chart dependency.
 
@@ -37,8 +37,8 @@ The dev server prints a local URL. Open it, then drop a `.duckdb` file on the st
 
 ## Generate TPC-H in the browser
 
-On the start screen, choose **Generate TPC-H**. SF 0.01 is the default; SF 0.1
-is available for a larger file. Generation downloads the pinned DuckDB-WASM
+On the start screen, choose **Generate TPC-H**. SF 1 is the default; SF 0.1 and
+SF 0.01 generate smaller files. Generation downloads the pinned DuckDB-WASM
 runtime (`1.33.1-dev65.0`) from jsDelivr and the official `tpch` extension from
 `extensions.duckdb.org`. It runs in an isolated worker, checkpoints and detaches
 the database, then offers **Download .duckdb** and **Open generated sample**.

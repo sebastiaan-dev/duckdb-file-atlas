@@ -101,10 +101,10 @@ afterEach(() => {
 
 describe("TPC-H generator", () => {
   test("rejects unsupported factors before creating a worker", async () => {
-    for (const value of [0, 1, -0.1, NaN, "0.01); DROP TABLE x;--"]) {
+    for (const value of [0, 10, -0.1, NaN, "0.01); DROP TABLE x;--"]) {
       await expect(
         generateTpchDatabase({ scaleFactor: value as TpchScaleFactor }),
-      ).rejects.toThrow("0.01 or 0.1");
+      ).rejects.toThrow("0.01, 0.1 or 1");
     }
     expect(worker).toBeUndefined();
   });
@@ -123,7 +123,7 @@ describe("TPC-H generator", () => {
     const file = await generateTpchDatabase({
       onProgress: (message) => progress.push(message),
     });
-    expect(file.name).toBe("tpch-sf0.01.duckdb");
+    expect(file.name).toBe("tpch-sf1.duckdb");
     expect(file.size).toBe(12288);
     expect(openConfig).toEqual({
       path: ":memory:",
@@ -136,7 +136,7 @@ describe("TPC-H generator", () => {
       "INSTALL tpch",
       "LOAD tpch",
       "ATTACH 'tpch.duckdb' AS generated (STORAGE_VERSION 'v1.5.0')",
-      "CALL dbgen(sf = 0.01, catalog = 'generated')",
+      "CALL dbgen(sf = 1, catalog = 'generated')",
       "CHECKPOINT generated",
       "DETACH generated",
       "close",

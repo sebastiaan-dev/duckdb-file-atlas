@@ -710,6 +710,10 @@ summary:focus-visible {
   line-height: 1.5;
 }
 .tile-size-control {
+  /* A fill scrubber: the whole control is the range input. The thumb is a
+     transparent --thumb-wide hit area that draws a thin handle at its center,
+     and the label/readout are inset by the same width so they never overlap. */
+  --thumb: 28px;
   position: relative;
   display: flex;
   align-items: center;
@@ -717,27 +721,81 @@ summary:focus-visible {
   flex: 0 0 auto;
   width: 190px;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 var(--thumb);
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface);
   box-shadow: var(--soft-shadow);
   color: var(--muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   white-space: nowrap;
   overflow: hidden;
+  isolation: isolate;
+}
+/* Filled share, ending half a thumb past the handle; hidden at the minimum. */
+.tile-size-control::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: -1;
+  width: calc(var(--thumb) + var(--tile-fill) * (100% - var(--thumb)));
+  background: var(--chart-empty);
+  opacity: min(1, calc(var(--tile-fill) * 1000));
+}
+/* Midpoint tick. */
+.tile-size-control::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--chart-unknown);
+  pointer-events: none;
 }
 .tile-size-control > span,
 .tile-size-control output {
+  position: relative;
+  z-index: 1;
   pointer-events: none;
 }
 .tile-size-control input {
-  flex: 1;
-  min-width: 0;
-  height: 16px;
-  margin: 0 8px;
-  accent-color: var(--chart-primary);
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
   cursor: ew-resize;
+}
+.tile-size-control input::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+.tile-size-control input::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
+.tile-size-control input::-webkit-slider-thumb {
+  width: var(--thumb);
+  height: 30px;
+  border: 0;
+  background: linear-gradient(var(--subtle), var(--subtle)) center / 2px 16px
+    no-repeat;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tile-size-control input::-moz-range-thumb {
+  width: var(--thumb);
+  height: 30px;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(var(--subtle), var(--subtle)) center / 2px 16px
+    no-repeat;
 }
 .tile-size-control:has(input:focus-visible) {
   outline: 2px solid var(--chart-primary);
@@ -746,18 +804,22 @@ summary:focus-visible {
 .tile-size-control:hover {
   border-color: color-mix(in srgb, var(--muted), var(--line) 65%);
 }
+.tile-size-control:hover input::-webkit-slider-thumb,
+.tile-size-control:has(input:focus-visible) input::-webkit-slider-thumb {
+  background-image: linear-gradient(var(--muted), var(--muted));
+}
 .tile-size-control output {
   color: var(--ink);
-  font: var(--text-xs) var(--mono);
   font-variant-numeric: tabular-nums;
+}
+.tile-size-control:hover > span,
+.tile-size-control:has(input:focus-visible) > span {
+  color: var(--ink);
 }
 @media (max-width: 600px) {
   .tile-size-control {
-    width: 132px;
-  }
-  /* The slider keeps its accessible name; the visible label yields the width. */
-  .tile-size-control > span {
-    display: none;
+    --thumb: 22px;
+    width: 140px;
   }
 }
 .map-body {

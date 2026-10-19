@@ -33,8 +33,8 @@ export function Landing({
       <div className="landing-inner">
         <h1>Inspect a DuckDB database file</h1>
         <p className="landing-lede">
-          See how blocks, row groups, column segments, indexes and free space
-          are laid out on disk.
+          See how blocks, row groups, indexes and free space are laid out on
+          disk.
         </p>
         <button
           type="button"
@@ -59,9 +59,7 @@ export function Landing({
                   : "Drop a .duckdb file here"}
             </strong>
             <span>
-              {loading
-                ? "Inspecting the local checkpoint"
-                : "or click to choose a file"}
+              {loading ? "Decoding the checkpoint" : "or click to browse"}
             </span>
           </span>
           <ArrowUpRight
@@ -86,8 +84,7 @@ export function Landing({
         <TpchGenerator onGenerated={onGenerated} disabled={loading} />
         <p className="landing-privacy" id="landing-privacy">
           <Lock size={12} aria-hidden="true" />
-          The file is read in your browser and never uploaded. Supports DuckDB
-          storage formats v1.0.0–v2.0.0.
+          Read locally, never uploaded · DuckDB storage v1.0.0–v2.0.0
         </p>
       </div>
     </main>

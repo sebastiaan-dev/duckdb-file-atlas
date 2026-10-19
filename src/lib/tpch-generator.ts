@@ -1,8 +1,9 @@
 import type { AsyncDuckDB } from "@duckdb/duckdb-wasm";
 
 export const TPCH_WASM_VERSION = "1.33.1-dev65.0";
-export const TPCH_SCALE_FACTORS = [0.01, 0.1] as const;
+export const TPCH_SCALE_FACTORS = [0.01, 0.1, 1] as const;
 export type TpchScaleFactor = (typeof TPCH_SCALE_FACTORS)[number];
+export const DEFAULT_TPCH_SCALE_FACTOR: TpchScaleFactor = 1;
 
 export interface TpchGenerationOptions {
   scaleFactor?: TpchScaleFactor;
@@ -27,13 +28,13 @@ export function tpchGenerationError(error: unknown): string {
  * requiring cross-origin isolation / SharedArrayBuffer on static hosting.
  */
 export async function generateTpchDatabase({
-  scaleFactor = 0.01,
+  scaleFactor = DEFAULT_TPCH_SCALE_FACTOR,
   signal,
   onProgress,
 }: TpchGenerationOptions = {}): Promise<File> {
   // Runtime validation matters even though TypeScript callers get a narrow type.
   if (!TPCH_SCALE_FACTORS.includes(scaleFactor)) {
-    throw new Error("Choose TPC-H scale factor 0.01 or 0.1.");
+    throw new Error("Choose TPC-H scale factor 0.01, 0.1 or 1.");
   }
   signal?.throwIfAborted();
 
