@@ -216,12 +216,6 @@
   overflow-wrap: anywhere;
   line-height: 1.45;
 }
-.heatmap-tooltip-hint {
-  border-top: 1px solid var(--line);
-  padding-top: 9px;
-  color: var(--subtle);
-  font-size: 9px;
-}
 .block-heatmap-tooltip-arrow {
   fill: var(--surface);
 }
@@ -251,7 +245,6 @@
     font-size: 8px;
   }
 }
-
 .heatmap-tooltip-anchor {
   position: absolute;
   pointer-events: none;

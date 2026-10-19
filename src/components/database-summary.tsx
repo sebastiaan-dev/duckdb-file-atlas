@@ -170,12 +170,12 @@ export function DatabaseSummary({
       <div className="overview-card" id={detailsId}>
         <div className="overview-metrics">
           <div className="hero-metric">
-            <span className="eyebrow">FILE FOOTPRINT</span>
+            <span className="eyebrow">File size</span>
             <strong>{formatBytes(inspection.fileSize)}</strong>
             <small>{formatNumber(inspection.fileSize)} bytes on disk</small>
           </div>
           <div className="support-metric">
-            <span className="eyebrow">PHYSICAL BLOCKS</span>
+            <span className="eyebrow">Blocks</span>
             <strong>{formatNumber(blockCount)}</strong>
             <small>
               {freeBlockCount != null
@@ -185,7 +185,7 @@ export function DatabaseSummary({
             </small>
           </div>
           <div className="support-metric">
-            <span className="eyebrow">MAPPED SEGMENTS</span>
+            <span className="eyebrow">Segments</span>
             <strong>
               {semanticReady ? formatNumber(inspection.segments.length) : "—"}
             </strong>
@@ -196,7 +196,7 @@ export function DatabaseSummary({
             </small>
           </div>
           <div className="support-metric">
-            <span className="eyebrow">DATA INTERNAL FREE SPACE</span>
+            <span className="eyebrow">Internal free space</span>
             <strong
               title={`${formatNumber(fragmentation.bytes)} bytes in completely mapped data blocks`}
             >

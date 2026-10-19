@@ -115,7 +115,7 @@ export function AppSidebar(props: AppSidebarProps) {
     <div className="sidebar-inner">
       <div className="side-section">
         <div className="eyebrow-row">
-          <span className="eyebrow">TABLES</span>
+          <span className="eyebrow">Tables</span>
           <span className="side-count">{tables.length}</span>
         </div>
         {tables.length ? (
@@ -123,7 +123,7 @@ export function AppSidebar(props: AppSidebarProps) {
             {schemaPrefix && (
               <span className="side-schema">
                 Schema <code>{schemaPrefix.slice(0, -1)}</code>
-                <small>segments</small>
+                <small>Segments</small>
               </span>
             )}
             {tables.map((table) => (
@@ -149,7 +149,7 @@ export function AppSidebar(props: AppSidebarProps) {
       </div>
       <div className="side-section side-section-divider">
         <div className="eyebrow-row">
-          <span className="eyebrow">CHECKPOINTS</span>
+          <span className="eyebrow">Checkpoints</span>
           <span className="side-count">{headers.length}</span>
         </div>
         <div className="checkpoint-list">

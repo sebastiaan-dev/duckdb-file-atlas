@@ -104,6 +104,10 @@ function shortName(value: string, max = 20) {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+function plural(count: number, noun: string) {
+  return `${formatNumber(count)} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function formatOffset(value: number) {
   return `0x${Math.max(0, value).toString(16).padStart(8, "0")}`;
 }
@@ -1711,8 +1715,8 @@ const LogicalGroups = memo(function LogicalGroups({
                 <div>
                   <strong>{table.name}</strong>
                   <span>
-                    {table.columns.length} columns ·{" "}
-                    {formatNumber(table.rows.length)} row groups
+                    {plural(table.columns.length, "column")} ·{" "}
+                    {plural(table.rows.length, "row group")}
                   </span>
                 </div>
               </div>
@@ -1728,7 +1732,7 @@ const LogicalGroups = memo(function LogicalGroups({
                     gridTemplateColumns: `var(--logical-axis-width) ${widths.map((width) => `minmax(${width}px, ${width}fr)`).join(" ")}`,
                   }}
                 >
-                  <div className="logical-cell logical-axis">ROW GROUP</div>
+                  <div className="logical-cell logical-axis">Row group</div>
                   {table.columns.map((column) => (
                     <div
                       className={`logical-cell logical-column-head${valueColumnKey === JSON.stringify([table.name, column.name]) ? " value-column-focus" : ""}`}
@@ -1934,7 +1938,7 @@ function CheckpointDetails({
             : "This header failed checksum validation and is ignored."}
       </p>
       <div className="detail-card">
-        <span className="detail-card-kicker">HEADER FIELDS</span>
+        <span className="detail-card-kicker">Header fields</span>
         <DetailPair
           label="Iteration"
           value={checkpoint.iteration || "Unknown"}
@@ -2133,9 +2137,11 @@ function BlockDetails({
         {block.checksum != null && (
           <DetailPair label="Checksum" value={block.checksum} mono />
         )}
-        {block.role !== "free" && !block.indexOwners?.length && (
-          <DetailPair label="Description" value={block.label || "Unknown"} />
-        )}
+        {block.role !== "free" &&
+          !block.indexOwners?.length &&
+          segments.length === 0 && (
+            <DetailPair label="Contents" value={block.label || "Unknown"} />
+          )}
         {block.role === "free" && inspection.freeList && (
           <>
             <DetailPair
@@ -2433,10 +2439,16 @@ function BlockDetails({
   );
 }
 
+const HEX_ROW_BYTES = 8;
+
 function HexPreview({ offset, bytes }: { offset: number; bytes: Uint8Array }) {
+  // Eight bytes per row keep offset, hex and ASCII inside the inspector.
   const rows = Array.from(
-    { length: Math.ceil(bytes.length / 16) },
-    (_, index) => Array.from(bytes.slice(index * 16, index * 16 + 16)),
+    { length: Math.ceil(bytes.length / HEX_ROW_BYTES) },
+    (_, index) =>
+      Array.from(
+        bytes.slice(index * HEX_ROW_BYTES, (index + 1) * HEX_ROW_BYTES),
+      ),
   );
   return (
     <div
@@ -2446,7 +2458,7 @@ function HexPreview({ offset, bytes }: { offset: number; bytes: Uint8Array }) {
       {rows.map((row, rowIndex) => (
         <div className="hex-row" key={rowIndex}>
           <span className="hex-offset">
-            {formatOffset(offset + rowIndex * 16).slice(2)}
+            {formatOffset(offset + rowIndex * HEX_ROW_BYTES).slice(2)}
           </span>
           <span className="hex-bytes">
             {row.map((byte, index) => (
@@ -2510,20 +2522,19 @@ function SegmentDetails({
         <Badge variant="purple">{segment.compression}</Badge>
       </div>
       <div className="detail-card">
-        <span className="detail-card-kicker">SEMANTIC DETAILS</span>
-        <DetailPair label="Table" value={segment.table} />
-        <DetailPair label="Column" value={segment.column} />
         <DetailPair label="Type" value={segment.columnType || "Unknown"} />
         <DetailPair
-          label="Compression"
-          value={segment.compression || "Unknown"}
-        />
-        <DetailPair label="Row group" value={formatNumber(segment.rowGroup)} />
-        <DetailPair
           label="Rows"
-          value={`${formatNumber(segment.rowStart)}–${formatNumber(segment.rowStart + segment.rowCount - 1)}`}
+          value={
+            <>
+              {formatNumber(segment.rowCount)}{" "}
+              <small className="detail-pair-note">
+                {formatNumber(segment.rowStart)}–
+                {formatNumber(segment.rowStart + segment.rowCount - 1)}
+              </small>
+            </>
+          }
         />
-        <DetailPair label="Row count" value={formatNumber(segment.rowCount)} />
         <DetailPair label="Byte size" value={formatBytes(segment.byteSize)} />
         {colorMetric && colorMetric.label !== "Compression" && (
           <DetailPair
@@ -2532,7 +2543,7 @@ function SegmentDetails({
           />
         )}
         <DetailPair
-          label="Block-relative offset"
+          label="Offset in block"
           value={
             segment.blockId >= 0
               ? `+${formatOffset(segment.offset)}`
@@ -2570,7 +2581,9 @@ function SegmentDetails({
       </div>
       {rowSummary && (
         <div className="detail-card">
-          <span className="detail-card-kicker">CHECKPOINT ROW GROUP</span>
+          <span className="detail-card-kicker">
+            Row group {formatNumber(segment.rowGroup)}
+          </span>
           <DetailPair
             label="Physical rows"
             value={formatNumber(rowSummary.physicalRows)}
@@ -2583,37 +2596,33 @@ function SegmentDetails({
             label="Deleted rows"
             value={formatNumber(rowSummary.deletedRows)}
           />
-          <DetailPair
-            label="Row start"
-            value={formatNumber(rowSummary.rowStart)}
-          />
-          <DetailPair
-            label="Delete vectors"
-            value={formatNumber(rowSummary.deleteVectors.length)}
-          />
-          <DetailPair
-            label="Delete encodings"
-            value={
-              [
-                ...new Set(
-                  rowSummary.deleteVectors.map((vector) => vector.encoding),
-                ),
-              ].join(", ") || "None"
-            }
-          />
-          <DetailPair
-            label="Deleted row runs"
-            value={formatNumber(
-              rowSummary.deleteVectors.reduce(
-                (sum, vector) => sum + vector.deletedRanges.length,
-                0,
-              ),
-            )}
-          />
-          <p className="section-caption">
-            Logical checkpoint visibility, not per-segment null counts or
-            reclaimable physical bytes.
-          </p>
+          {rowSummary.deleteVectors.length > 0 && (
+            <>
+              <DetailPair
+                label="Delete vectors"
+                value={`${formatNumber(rowSummary.deleteVectors.length)} · ${[
+                  ...new Set(
+                    rowSummary.deleteVectors.map((vector) => vector.encoding),
+                  ),
+                ].join(", ")}`}
+              />
+              <DetailPair
+                label="Deleted row runs"
+                value={formatNumber(
+                  rowSummary.deleteVectors.reduce(
+                    (sum, vector) => sum + vector.deletedRanges.length,
+                    0,
+                  ),
+                )}
+              />
+            </>
+          )}
+          {rowSummary.deletedRows > 0 && (
+            <p className="section-caption">
+              Deleted rows are hidden by the checkpoint but still occupy
+              storage.
+            </p>
+          )}
         </div>
       )}
       {block && (
@@ -2655,14 +2664,14 @@ function SegmentDetails({
           )}
         </div>
       )}
-      <div className="inspector-note">
-        <FileCode2 size={14} />
-        <span>
-          {inspection.native
-            ? "String zonemaps may contain truncated bounds. Mixed null counts are not always recorded."
-            : "Semantic values come from the imported map. Missing fields remain unknown or unrecorded."}
-        </span>
-      </div>
+      {!inspection.native && (
+        <div className="inspector-note">
+          <FileCode2 size={14} />
+          <span>
+            Values come from the imported map; missing fields stay unknown.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

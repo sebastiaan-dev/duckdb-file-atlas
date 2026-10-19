@@ -26,9 +26,7 @@ for (const [version, label] of [
     ).toBeVisible();
     await expect(warning).toBeVisible();
     await expect(warning).toContainText(label);
-    await expect(warning).toContainText(
-      "Not all inspection features are available",
-    );
+    await expect(warning).toContainText("Files written before v2.0.0");
     await expect(warning).toContainText("segment sizes");
     await expect(warning).toContainText("internal free space");
     await expect(page.getByRole("alert")).toHaveCount(0);

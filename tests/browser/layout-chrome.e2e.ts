@@ -17,7 +17,7 @@ test("the summary starts collapsed to one line, expands, and remembers the choic
   const mapTop = async () =>
     (await page.locator('[data-block-id="0"]').boundingBox())!.y;
   // Collapsed by default: file name, key figures and the role rail remain.
-  await expect(summary).not.toContainText("FILE FOOTPRINT");
+  await expect(summary).not.toContainText("File size");
   await expect(summary.getByRole("heading")).toHaveText(
     "browser-fixture.duckdb",
   );
@@ -29,7 +29,7 @@ test("the summary starts collapsed to one line, expands, and remembers the choic
   const collapsedTop = await mapTop();
 
   await page.getByRole("button", { name: "Expand summary" }).click();
-  await expect(summary).toContainText("FILE FOOTPRINT");
+  await expect(summary).toContainText("File size");
   await expect(summary.getByLabel("File properties")).toContainText("v69");
   expect(await mapTop()).toBeGreaterThan(collapsedTop + 150);
 
@@ -41,7 +41,7 @@ test("the summary starts collapsed to one line, expands, and remembers the choic
     page.getByRole("button", { name: "Collapse summary" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Collapse summary" }).click();
-  await expect(summary).not.toContainText("FILE FOOTPRINT");
+  await expect(summary).not.toContainText("File size");
 });
 
 test("the collapsed notes badge reopens the summary with notes expanded", async ({

@@ -26,12 +26,12 @@ export function LogicalColorLegend({
         : logicalRamp;
   const title =
     mode === "bytes-per-row"
-      ? "BYTES PER ROW"
+      ? "Bytes per row"
       : mode === "relative-footprint"
-        ? "VS COLUMN MEDIAN"
+        ? "Vs. column median"
         : mode === "null-fraction"
-          ? "NULL FRACTION"
-          : "VALUE RANGE";
+          ? "Null fraction"
+          : "Value range";
   return (
     <div
       className="legend logical-color-legend"
@@ -39,7 +39,7 @@ export function LogicalColorLegend({
     >
       {mode === "compression" ? (
         <>
-          <span className="legend-title">COMPRESSION</span>
+          <span className="legend-title">Compression</span>
           {metrics.compressions
             .filter((name) => name && name.toLowerCase() !== "unknown")
             .map((name) => (

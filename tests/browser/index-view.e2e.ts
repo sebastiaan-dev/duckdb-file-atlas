@@ -113,7 +113,7 @@ test("native named indexes expose persisted allocator occupancy, block ownership
   );
   await page.locator(".segment-choice").first().click();
   await expect(page.getByLabel("Selection details")).toContainText(
-    "CHECKPOINT ROW GROUP",
+    "Row group 0",
   );
   await expect(page.getByLabel("Selection details")).toContainText("Live rows");
   await expect(page.getByLabel("Selection details")).toContainText("5,000");

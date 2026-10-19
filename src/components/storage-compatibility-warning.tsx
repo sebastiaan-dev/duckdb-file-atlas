@@ -18,9 +18,9 @@ export function StorageCompatibilityWarning({ version }: { version: number }) {
           Limited features · {storageVersionName(version)} storage
         </strong>
         <p>
-          Not all inspection features are available for storage formats before
-          v2.0.0. Exact column-segment sizes and data internal free space cannot
-          be measured. Some older index layouts may also be unmeasured.
+          Files written before v2.0.0 do not record exact column-segment sizes,
+          so segment byte sizes and internal free space in data blocks stay
+          unknown. Some older index layouts may also be unmeasured.
         </p>
       </div>
     </aside>
