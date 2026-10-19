@@ -1,4 +1,6 @@
 import "./tpch-generator.css";
+import { SqlBuilder } from "./sql-builder";
+import type { SqlRecipe } from "../lib/sql-recipes";
 import { useEffect, useId, useRef, useState } from "react";
 import { Database, Download, LoaderCircle } from "lucide-react";
 import {
@@ -8,18 +10,30 @@ import {
   type TpchScaleFactor,
 } from "../lib/tpch-generator";
 
+export type GeneratorMode = "tpch" | "sql";
+
 export interface TpchGeneratorProps {
   onGenerated: (file: File) => void | Promise<void>;
   /** Disable starting/opening while the parent is reading another file. */
   disabled?: boolean;
+  /** The SQL tab: its recipe lives with the caller (and the URL). */
+  sql: {
+    recipe: SqlRecipe;
+    onRecipeChange: (recipe: SqlRecipe) => void;
+    onBuilt: (file: File, recipe: SqlRecipe) => void | Promise<void>;
+  };
+  initialMode?: GeneratorMode;
 }
 
 /** Optional landing-screen sample generator; mounting does not load WASM. */
 export function TpchGenerator({
   onGenerated,
   disabled = false,
+  sql,
+  initialMode = "tpch",
 }: TpchGeneratorProps) {
   const id = useId();
+  const [mode, setMode] = useState<GeneratorMode>(initialMode);
   const [scaleFactor, setScaleFactor] = useState<TpchScaleFactor>(
     DEFAULT_TPCH_SCALE_FACTOR,
   );
@@ -116,70 +130,104 @@ export function TpchGenerator({
           <Database size={23} />
         </span>
         <div>
-          <h2 id={`${id}-heading`}>Generate a TPC-H sample</h2>
+          <h2 id={`${id}-heading`}>Generate a database</h2>
           <p>No file? Create one in your browser.</p>
         </div>
       </div>
-      <div className="tpch-generator-controls">
-        <label htmlFor={`${id}-scale`}>TPC-H scale factor</label>{" "}
-        <select
-          id={`${id}-scale`}
-          value={scaleFactor}
-          disabled={busy || opening || disabled}
-          onChange={(event) =>
-            setScaleFactor(Number(event.target.value) as TpchScaleFactor)
-          }
-        >
-          <option value="1">1 · standard</option>
-          <option value="0.1">0.1 · medium</option>
-          <option value="0.01">0.01 · small</option>
-        </select>{" "}
-        <button
-          type="button"
-          className="tpch-generate-button"
-          onClick={() => void generate()}
-          disabled={busy || opening || disabled}
-          aria-describedby={`${id}-privacy`}
-        >
-          {busy && (
-            <LoaderCircle className="spin" size={14} aria-hidden="true" />
-          )}
-          {busy ? "Generating TPC-H…" : "Generate TPC-H"}
-        </button>{" "}
-        {busy && (
-          <button type="button" onClick={cancel}>
-            Cancel generation
-          </button>
-        )}
-      </div>
-      <p className="tpch-generator-privacy" id={`${id}-privacy`}>
-        Loads a 35 MB DuckDB runtime from this site. Larger scale factors use
-        more memory.
-      </p>
-      <p role="status" aria-live="polite" aria-atomic="true">
-        {progress}
-      </p>
-      {error && (
-        <p className="message error-message" role="alert">
-          {error}
-        </p>
-      )}
-      {file && downloadURL && (
-        <div className="tpch-generator-result">
-          <p className="tpch-format-note">
-            Eight tables in v2.0 storage, with exact segment sizes.
-          </p>
-          <a href={downloadURL} download={file.name}>
-            <Download size={14} aria-hidden="true" /> Download .duckdb
-          </a>{" "}
+      <div
+        className="generator-modes"
+        role="group"
+        aria-label="How to generate the database"
+      >
+        {(
+          [
+            ["tpch", "TPC-H sample"],
+            ["sql", "Your SQL"],
+          ] as const
+        ).map(([value, label]) => (
           <button
             type="button"
-            onClick={() => void open()}
-            disabled={disabled || opening}
+            key={value}
+            aria-pressed={mode === value}
+            disabled={busy || opening}
+            onClick={() => setMode(value)}
           >
-            {opening ? "Opening sample…" : "Open generated sample"}
+            {label}
           </button>
-        </div>
+        ))}
+      </div>
+      {mode === "sql" ? (
+        <SqlBuilder
+          variant="landing"
+          disabled={disabled}
+          recipe={sql.recipe}
+          onRecipeChange={sql.onRecipeChange}
+          onBuilt={sql.onBuilt}
+        />
+      ) : (
+        <>
+          <div className="tpch-generator-controls">
+            <label htmlFor={`${id}-scale`}>TPC-H scale factor</label>{" "}
+            <select
+              id={`${id}-scale`}
+              value={scaleFactor}
+              disabled={busy || opening || disabled}
+              onChange={(event) =>
+                setScaleFactor(Number(event.target.value) as TpchScaleFactor)
+              }
+            >
+              <option value="1">1 · standard</option>
+              <option value="0.1">0.1 · medium</option>
+              <option value="0.01">0.01 · small</option>
+            </select>{" "}
+            <button
+              type="button"
+              className="tpch-generate-button"
+              onClick={() => void generate()}
+              disabled={busy || opening || disabled}
+              aria-describedby={`${id}-privacy`}
+            >
+              {busy && (
+                <LoaderCircle className="spin" size={14} aria-hidden="true" />
+              )}
+              {busy ? "Generating TPC-H…" : "Generate TPC-H"}
+            </button>{" "}
+            {busy && (
+              <button type="button" onClick={cancel}>
+                Cancel generation
+              </button>
+            )}
+          </div>
+          <p className="tpch-generator-privacy" id={`${id}-privacy`}>
+            Loads a 35 MB DuckDB runtime from this site. Larger scale factors
+            use more memory.
+          </p>
+          <p role="status" aria-live="polite" aria-atomic="true">
+            {progress}
+          </p>
+          {error && (
+            <p className="message error-message" role="alert">
+              {error}
+            </p>
+          )}
+          {file && downloadURL && (
+            <div className="tpch-generator-result">
+              <p className="tpch-format-note">
+                Eight tables in v2.0 storage, with exact segment sizes.
+              </p>
+              <a href={downloadURL} download={file.name}>
+                <Download size={14} aria-hidden="true" /> Download .duckdb
+              </a>{" "}
+              <button
+                type="button"
+                onClick={() => void open()}
+                disabled={disabled || opening}
+              >
+                {opening ? "Opening sample…" : "Open generated sample"}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

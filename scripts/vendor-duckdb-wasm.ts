@@ -31,6 +31,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 const UPSTREAM = "duckdb/duckdb-wasm";
+/**
+ * Extensions served next to the runtime. TPC-H/TPC-DS generate samples; the
+ * others are autoloaded by user SQL (time zones, JSON, Parquet). Core
+ * functions and nanoarrow are linked into the runtime itself.
+ */
+const EXTENSIONS = ["tpch", "tpcds", "icu", "json", "parquet"];
 const ROOT = join(import.meta.dir, "..");
 const VENDOR = join(ROOT, "vendor/duckdb-wasm");
 
@@ -97,11 +103,6 @@ try {
   );
   const extensionRoot = join(work, "extension-repository-base-loadable");
   const [sourceId] = await readdir(extensionRoot);
-  const tpch = join(
-    extensionRoot,
-    sourceId,
-    "wasm_base/tpch.duckdb_extension.wasm",
-  );
   const version = manifest.version as string;
   const tag = `duckdb-wasm-${version}`;
 
@@ -166,10 +167,14 @@ try {
       path: "duckdb-browser-base.worker.js",
     },
     // DuckDB-WASM requests `<repository>/<source id>/<platform>/<name>`.
-    {
-      source: tpch,
-      path: `extensions/${sourceId}/wasm_base/tpch.duckdb_extension.wasm`,
-    },
+    ...EXTENSIONS.map((name) => ({
+      source: join(
+        extensionRoot,
+        sourceId,
+        `wasm_base/${name}.duckdb_extension.wasm`,
+      ),
+      path: `extensions/${sourceId}/wasm_base/${name}.duckdb_extension.wasm`,
+    })),
   ];
   const runtime = [];
   for (const asset of assets) {
@@ -220,7 +225,7 @@ duckdb-wasm CI run <https://github.com/${UPSTREAM}/actions/runs/${runId}>
 (loadable-extension variant). Published DuckDB-WASM packages cannot write
 \`STORAGE_VERSION 'v2.0.0'\` yet; the TPC-H generator needs a DuckDB 2.0 build.
 
-Only the JS API lives here. The WASM module, worker and TPC-H extension are
+Only the JS API lives here. The WASM module, worker and extensions are
 release assets of this repository (\`${tag}\`), listed with checksums in
 \`runtime.json\` and fetched by \`scripts/fetch-duckdb-runtime.ts\`.
 

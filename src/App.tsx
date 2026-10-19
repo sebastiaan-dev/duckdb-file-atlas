@@ -15,6 +15,13 @@ import {
   type RowGroupRef,
 } from "@/lib/row-groups";
 import { RowGroupDetails } from "@/components/row-group-details";
+import { SqlDialog } from "@/components/sql-dialog";
+import {
+  DEFAULT_SQL_RECIPE,
+  decodeRecipe,
+  encodeRecipe,
+  type SqlRecipe,
+} from "@/lib/sql-recipes";
 import { blockRowGroups, rowGroupColor } from "@/lib/palette";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
@@ -64,6 +71,7 @@ import {
   PanelLeftOpen,
   Sun,
   FolderOpen,
+  SquareTerminal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -739,7 +747,9 @@ function Workspace({
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        target.closest("input, textarea, select, [role=tooltip], [role=dialog]")
+        target.closest(
+          "input, textarea, select, dialog, [role=tooltip], [role=dialog]",
+        )
       )
         return;
       // Tooltips close first; a second Escape clears the selection.
@@ -1595,7 +1605,25 @@ export default function App() {
   const inspectionAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => inspectionAbortRef.current?.abort(), []);
 
-  const loadDatabase = useCallback(async (file: File) => {
+  // The SQL recipe is shared by the landing card, the workspace dialog and
+  // the URL, which carries it for shareable links.
+  const [recipe, setRecipe] = useState<SqlRecipe>(DEFAULT_SQL_RECIPE);
+  const [recipeFromLink, setRecipeFromLink] = useState(false);
+  const [sqlOpen, setSqlOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void decodeRecipe(window.location.hash).then((shared) => {
+      if (!shared || cancelled) return;
+      setRecipe(shared);
+      setRecipeFromLink(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Resolves true when the file opened. `hash` describes how it was made. */
+  const loadDatabase = useCallback(async (file: File, hash = "") => {
     const requestId = ++fileLoadRequestRef.current;
     inspectionAbortRef.current?.abort();
     const controller = new AbortController();
@@ -1604,10 +1632,16 @@ export default function App() {
     setError("");
     try {
       const result = await inspectDatabase(file, controller.signal);
-      if (requestId !== fileLoadRequestRef.current) return;
+      // A newer load superseded this one.
+      if (requestId !== fileLoadRequestRef.current) return false;
       setInspection(result);
       setActiveFile(file);
       setLoadKey((key) => key + 1);
+      // The address describes the open database: a SQL recipe, or nothing.
+      const url = new URL(window.location.href);
+      url.hash = hash;
+      window.history.replaceState(null, "", url.href.replace(/#$/, ""));
+      return true;
     } catch (caught) {
       if (requestId === fileLoadRequestRef.current)
         setError(
@@ -1615,13 +1649,20 @@ export default function App() {
             ? caught.message
             : "This file could not be inspected.",
         );
+      return false;
     } finally {
       if (requestId === fileLoadRequestRef.current) {
         setLoadingFile(false);
         setDragging(false);
       }
     }
+    return false;
   }, []);
+  const openBuiltDatabase = useCallback(
+    async (file: File, built: SqlRecipe) =>
+      loadDatabase(file, await encodeRecipe(built)),
+    [loadDatabase],
+  );
 
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentFlag(
     "atlas-sidebar-collapsed",
@@ -1656,7 +1697,9 @@ export default function App() {
         event.ctrlKey ||
         event.altKey ||
         (event.target instanceof HTMLElement &&
-          event.target.closest("input, textarea, select, [contenteditable]"))
+          event.target.closest(
+            "input, textarea, select, dialog, [contenteditable]",
+          ))
       )
         return;
       event.preventDefault();
@@ -1708,6 +1751,13 @@ export default function App() {
           event.target.value = "";
         }}
       />
+      <SqlDialog
+        open={sqlOpen && Boolean(inspection)}
+        onClose={() => setSqlOpen(false)}
+        recipe={recipe}
+        onRecipeChange={setRecipe}
+        onBuilt={openBuiltDatabase}
+      />
       <header className="topbar">
         <div className="brand-lockup">
           {inspection && narrow && (
@@ -1730,6 +1780,18 @@ export default function App() {
           <strong>File Atlas</strong>
         </div>
         <div className="topbar-actions">
+          {inspection && (
+            <button
+              type="button"
+              className="open-file-button"
+              onClick={() => setSqlOpen(true)}
+              disabled={loadingFile}
+              title="Build a database from your own SQL"
+            >
+              <SquareTerminal size={14} aria-hidden="true" />
+              SQL
+            </button>
+          )}
           {inspection && (
             <button
               type="button"
@@ -1781,7 +1843,17 @@ export default function App() {
           error={error}
           onDismissError={() => setError("")}
           onChooseFile={() => fileInputRef.current?.click()}
-          onGenerated={loadDatabase}
+          onGenerated={async (file) => {
+            await loadDatabase(file);
+          }}
+          sql={{
+            recipe,
+            onRecipeChange: setRecipe,
+            onBuilt: async (file, built) => {
+              await openBuiltDatabase(file, built);
+            },
+          }}
+          generatorMode={recipeFromLink ? "sql" : "tpch"}
         />
       )}
     </div>

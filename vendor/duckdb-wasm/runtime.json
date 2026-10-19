@@ -24,6 +24,30 @@
       "path": "extensions/f8f3f4dcd9/wasm_base/tpch.duckdb_extension.wasm",
       "size": 1082353,
       "sha256": "14c3f376a601d18f3a9fe1844d2c71b9048027ec6b628caf461c652fca25224d"
+    },
+    {
+      "asset": "tpcds.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_base/tpcds.duckdb_extension.wasm",
+      "size": 2206826,
+      "sha256": "7cae87dfff6d0cfb4da429f190829ea778c9af585ec23bb0d057daa466ea0fe8"
+    },
+    {
+      "asset": "icu.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_base/icu.duckdb_extension.wasm",
+      "size": 1165721,
+      "sha256": "d90966cba348524d4cee830ae00d227f92c1909497fd25e30b32bb658e21d538"
+    },
+    {
+      "asset": "json.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_base/json.duckdb_extension.wasm",
+      "size": 683569,
+      "sha256": "5b4dfb42bd214de077aec8f75646fbab5f3fec2ee9624d520e8a4e5c190dc3ce"
+    },
+    {
+      "asset": "parquet.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_base/parquet.duckdb_extension.wasm",
+      "size": 2213208,
+      "sha256": "f1c0432056587ff21fa5fa68c9e35517f31fa829e8765bc677387b3b3be01498"
     }
   ]
 }

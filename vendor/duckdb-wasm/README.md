@@ -5,7 +5,7 @@ duckdb-wasm CI run <https://github.com/duckdb/duckdb-wasm/actions/runs/392243147
 (loadable-extension variant). Published DuckDB-WASM packages cannot write
 `STORAGE_VERSION 'v2.0.0'` yet; the TPC-H generator needs a DuckDB 2.0 build.
 
-Only the JS API lives here. The WASM module, worker and TPC-H extension are
+Only the JS API lives here. The WASM module, worker and extensions are
 release assets of this repository (`duckdb-wasm-1.33.1-dev107.0`), listed with checksums in
 `runtime.json` and fetched by `scripts/fetch-duckdb-runtime.ts`.
 

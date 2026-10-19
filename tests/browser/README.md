@@ -16,9 +16,10 @@ input and decoded by the application's inspection worker. The semantic-selection
 case uses the supported manifest fallback with unsupported catalog metadata.
 Tests drive actual pointer coordinates, keyboard focus, selections and paging.
 
-The real in-browser TPC-H generation tests are opt-in because they run the
-vendored DuckDB 2.0 runtime and TPC-H extension (served by the dev server from
-`public/duckdb-runtime/`) at SF 0.01, 0.1 and 1:
+The real in-browser generation tests (TPC-H at SF 0.01, 0.1 and 1, every SQL
+preset, storage options and statement errors) are opt-in because they run the
+vendored DuckDB 2.0 runtime and extensions served by the dev server from
+`public/duckdb-runtime/`:
 
 ```sh
 TPCH_BROWSER_GENERATE=1 bun run test:browser

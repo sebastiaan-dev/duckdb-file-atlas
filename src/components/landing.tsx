@@ -1,5 +1,5 @@
 import "./landing.css";
-import { TpchGenerator } from "./tpch-generator";
+import { TpchGenerator, type TpchGeneratorProps } from "./tpch-generator";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -17,6 +17,9 @@ export interface LandingProps {
   onDismissError: () => void;
   onChooseFile: () => void;
   onGenerated: (file: File) => void | Promise<void>;
+  sql: TpchGeneratorProps["sql"];
+  /** Open the generator on the SQL tab, e.g. for a shared SQL link. */
+  generatorMode: TpchGeneratorProps["initialMode"];
 }
 
 /** First screen: choose or drop a local DuckDB file. */
@@ -27,15 +30,13 @@ export function Landing({
   onDismissError,
   onChooseFile,
   onGenerated,
+  sql,
+  generatorMode,
 }: LandingProps) {
   return (
     <main className="landing">
       <div className="landing-inner">
         <h1>Inspect a DuckDB database file</h1>
-        <p className="landing-lede">
-          See how blocks, row groups, indexes and free space are laid out on
-          disk.
-        </p>
         <button
           type="button"
           className={`landing-dropzone landing-card${dragging ? " is-active" : ""}${loading ? " is-loading" : ""}`}
@@ -81,7 +82,14 @@ export function Landing({
             </button>
           </div>
         )}
-        <TpchGenerator onGenerated={onGenerated} disabled={loading} />
+        <TpchGenerator
+          // A shared link arrives after the first render; remount on it.
+          key={generatorMode}
+          onGenerated={onGenerated}
+          disabled={loading}
+          sql={sql}
+          initialMode={generatorMode}
+        />
         <p className="landing-privacy" id="landing-privacy">
           <Lock size={12} aria-hidden="true" />
           Read locally, never uploaded · DuckDB storage v1.0.0–v2.0.0

@@ -62,6 +62,24 @@ To move to a newer DuckDB-WASM build, pick a successful run of the
 loadable-extension CI build in `duckdb/duckdb-wasm`, then run
 `bun run vendor:duckdb-wasm <run id> --publish`.
 
+## Build a database from SQL
+
+The same card has a **Your SQL** tab: write a script (or start from a preset
+such as compression codecs, deletes, updates and free blocks, appends and row
+groups, ART indexes, long strings with overflow blocks, or TPC-DS) and choose
+the storage format (v1.0.0–v2.0.0) and block size (16–256 KiB). **Run SQL**
+executes it statement by statement in a fresh database whose default catalog
+is the new file, so unqualified `CREATE TABLE` statements land in it. When the
+script ends the file is checkpointed and opened. A failing statement is
+reported with its number and line, and nothing is opened.
+
+The address bar then holds the script and options (compressed in the URL
+fragment, which is never sent to a server), and **Copy link** copies it: a
+shared link opens the SQL tab with the same script, but never runs it by
+itself. In the workspace, the **SQL** button opens the same editor to rebuild
+or replace the open database. Extensions the script uses (TPC-H, TPC-DS, ICU,
+JSON, Parquet) autoload from this site.
+
 ## Check and build
 
 ```sh

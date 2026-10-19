@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   generateTpchDatabase,
   tpchGenerationError,
-  tpchRuntimeURL,
 } from "../src/lib/tpch-generator";
+import {
+  buildDatabase,
+  duckdbRuntimeURL,
+  StatementError,
+} from "../src/lib/database-builder";
 import runtime from "../vendor/duckdb-wasm/runtime.json";
 import type { TpchScaleFactor } from "../src/lib/tpch-generator";
 
@@ -182,14 +186,16 @@ describe("TPC-H generator", () => {
     });
     expect(calls).toEqual([
       "SET memory_limit = '512MB'",
-      `SET custom_extension_repository = '${tpchRuntimeURL("extensions")}'`,
+      `SET custom_extension_repository = '${duckdbRuntimeURL("extensions")}'`,
       "INSTALL tpch",
       "LOAD tpch",
       expect.stringMatching(
-        /^ATTACH 'opfs:\/\/atlas-tpch-[0-9a-f-]{36}\.duckdb' AS generated \(STORAGE_VERSION 'v2\.0\.0'\)$/,
+        /^ATTACH 'opfs:\/\/atlas-build-[0-9a-f-]{36}\.duckdb' AS generated \(STORAGE_VERSION 'v2\.0\.0'\)$/,
       ),
+      "USE generated",
       "CALL dbgen(sf = 1, catalog = 'generated')",
       "CHECKPOINT generated",
+      "USE memory",
       "DETACH generated",
       "close",
       "detach worker",
@@ -199,8 +205,8 @@ describe("TPC-H generator", () => {
     expect(progress).toHaveLength(5);
     // Runtime, worker and extension all come from this site's vendored copy.
     expect(bundleURLs).toEqual([
-      tpchRuntimeURL("duckdb-base.wasm"),
-      tpchRuntimeURL("duckdb-browser-base.worker.js"),
+      duckdbRuntimeURL("duckdb-base.wasm"),
+      duckdbRuntimeURL("duckdb-browser-base.worker.js"),
     ]);
     expect(bundleURLs[0]).toContain(`/duckdb-runtime/${runtime.sourceId}/`);
     expect(String(worker?.url)).toBe(bundleURLs[1]);
@@ -265,5 +271,76 @@ describe("TPC-H generator", () => {
     expect(message).toContain("DuckDB runtime");
     expect(message).toContain("SF 0.01");
     expect(message).toContain("network failure");
+  });
+});
+
+describe("database builder", () => {
+  const script = [
+    { sql: "CREATE TABLE t AS SELECT 1 AS a", line: 1 },
+    { sql: "INSERT INTO t VALUES (2)", line: 2 },
+  ];
+
+  test("runs each statement in the new file with the chosen format", async () => {
+    const progress: string[] = [];
+    const file = await buildDatabase({
+      statements: script,
+      fileName: "custom.duckdb",
+      storageVersion: "v1.2.0",
+      blockSize: 16384,
+      onProgress: (message) => progress.push(message),
+    });
+    expect(file.name).toBe("custom.duckdb");
+    expect(calls).toEqual([
+      "SET memory_limit = '512MB'",
+      `SET custom_extension_repository = '${duckdbRuntimeURL("extensions")}'`,
+      expect.stringMatching(
+        /AS generated \(STORAGE_VERSION 'v1\.2\.0', BLOCK_SIZE 16384\)$/,
+      ),
+      "USE generated",
+      "CREATE TABLE t AS SELECT 1 AS a",
+      "INSERT INTO t VALUES (2)",
+      "CHECKPOINT generated",
+      "USE memory",
+      "DETACH generated",
+      "close",
+      "detach worker",
+    ]);
+    expect(progress).toContain("Running statement 2 of 2…");
+    expect(opfsFiles()).toEqual([]);
+  });
+
+  test("a failing statement reports its number and line, and cleans up", async () => {
+    query = async (sql) => {
+      if (sql.startsWith("INSERT"))
+        throw new Error("Catalog Error: Table with name u does not exist!");
+    };
+    const error = await buildDatabase({
+      statements: script,
+      fileName: "custom.duckdb",
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(StatementError);
+    expect((error as StatementError).message).toBe(
+      "Statement 2 of 2 (line 2) failed: Catalog Error: Table with name u does not exist!",
+    );
+    expect((error as StatementError).statement.line).toBe(2);
+    expect(calls).not.toContain("CHECKPOINT generated");
+    expect(worker?.terminated).toBe(true);
+    expect(opfsFiles()).toEqual([]);
+  });
+
+  test("options that become SQL must be known values", async () => {
+    for (const options of [
+      { storageVersion: "v9.9.9' ) ; DROP" },
+      { blockSize: 1234 },
+      { extensions: ["tpch; DROP"] },
+    ])
+      await expect(
+        buildDatabase({
+          statements: script,
+          fileName: "x.duckdb",
+          ...(options as object),
+        }),
+      ).rejects.toThrow(/Unsupported|Invalid/);
+    expect(worker).toBeUndefined();
   });
 });

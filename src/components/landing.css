@@ -47,7 +47,7 @@
   width: min(600px, 100%);
 }
 .landing h1 {
-  margin: 0;
+  margin: 0 0 20px;
   text-align: center;
   font-size: clamp(26px, 3vw, 34px);
   font-weight: 550;
@@ -55,16 +55,6 @@
   line-height: 1.2;
   text-wrap: balance;
   text-shadow: 0 2px 16px rgb(0 0 0 / 25%);
-}
-.landing-lede {
-  max-width: 470px;
-  margin: 0 auto 20px;
-  color: #f1f2ed;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1.7;
-  text-wrap: balance;
-  text-shadow: 0 1px 8px rgb(0 0 0 / 50%);
 }
 .landing .landing-card {
   color: var(--landing-ink);
