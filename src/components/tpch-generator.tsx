@@ -153,7 +153,7 @@ export function TpchGenerator({
         )}
       </div>
       <p className="tpch-generator-privacy" id={`${id}-privacy`}>
-        Downloads DuckDB-WASM and the TPC-H extension. Larger scale factors use
+        Loads a 35 MB DuckDB runtime from this site. Larger scale factors use
         more memory.
       </p>
       <p role="status" aria-live="polite" aria-atomic="true">
@@ -167,8 +167,7 @@ export function TpchGenerator({
       {file && downloadURL && (
         <div className="tpch-generator-result">
           <p className="tpch-format-note">
-            Eight tables in v1.5.0 storage, which does not record exact segment
-            sizes.
+            Eight tables in v2.0 storage, with exact segment sizes.
           </p>
           <a href={downloadURL} download={file.name}>
             <Download size={14} aria-hidden="true" /> Download .duckdb

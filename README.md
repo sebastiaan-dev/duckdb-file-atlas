@@ -40,19 +40,27 @@ The dev server prints a local URL. Open it, then drop a `.duckdb` file on the st
 ## Generate TPC-H in the browser
 
 On the start screen, choose **Generate TPC-H**. SF 1 is the default; SF 0.1 and
-SF 0.01 generate smaller files. Generation downloads the pinned DuckDB-WASM
-runtime (`1.33.1-dev65.0`) from jsDelivr and the official `tpch` extension from
-`extensions.duckdb.org`. It runs in an isolated worker, checkpoints and detaches
-the database, then offers **Download .duckdb** and **Open generated sample**.
-No database contents are sent to a server. Cancellation terminates the worker;
-all worker resources are released on completion, failure or cancellation.
+SF 0.01 generate smaller files. The generator writes **v2.0 storage**, so exact
+segment sizes and internal free space are measurable. It runs DuckDB in an
+isolated worker, checkpoints and detaches the database, then offers
+**Download .duckdb** and **Open generated sample**. No database contents are
+sent to a server. Cancellation terminates the worker; the worker, its files
+and its scratch space are released on completion, failure or cancellation.
 
-The generator needs network access, several hundred MB of browser memory, and
-CSP permission for those CDN downloads and Blob workers. Opening your own file
-never loads DuckDB-WASM. Generated files use v1.5.0 storage: column ownership,
-row groups, compression and statistics can be inspected, but this format does
-not persist exact column-segment lengths. Those lengths and internal free space
-stay unknown, rather than being estimated.
+No published DuckDB-WASM release can write v2.0 storage yet, so the app vendors
+a DuckDB 2.0 build of DuckDB-WASM (see `vendor/duckdb-wasm/README.md`). The JS
+API lives in `vendor/duckdb-wasm`; the 35 MB WASM module, its worker and the
+matching TPC-H extension are assets of a GitHub release of this repository.
+`bun run dev` and `bun run build` install them into `public/duckdb-runtime/`
+(checksum-verified, git-ignored), so the deployed site serves the runtime
+itself: no CDN, extension repository or Blob worker is involved. The database
+is written to the browser's origin private file system (OPFS) while it is
+generated and removed once it has been read back. Opening your own file never
+loads DuckDB-WASM.
+
+To move to a newer DuckDB-WASM build, pick a successful run of the
+loadable-extension CI build in `duckdb/duckdb-wasm`, then run
+`bun run vendor:duckdb-wasm <run id> --publish`.
 
 ## Check and build
 

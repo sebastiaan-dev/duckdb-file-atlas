@@ -12,11 +12,14 @@ jobs:
           bun-version: 1.3.13
       - run: bun install --frozen-lockfile
       - run: bun test
+      # Installs the vendored DuckDB-WASM runtime from this repository's release.
       - run: bun run build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:browser
         env:
-          TPCH_BROWSER_NETWORK: "1"
+          TPCH_BROWSER_GENERATE: "1"
   storage-compatibility:
     runs-on: ubuntu-latest
     strategy:

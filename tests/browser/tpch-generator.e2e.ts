@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { databaseFixture } from "./fixture";
 import { readFile } from "node:fs/promises";
 
-const WASM_ASSET = /cdn\.jsdelivr\.net\/npm\/@duckdb\/duckdb-wasm@/;
+// The vendored runtime is served by the app itself, next to its TPC-H extension.
+const WASM_ASSET = /\/duckdb-runtime\//;
 
 type WorkerCounts = { created: number; terminated: number };
 
@@ -34,15 +35,15 @@ async function trackWorkers(page: Page) {
     );
 }
 
-// These intentionally use the real, pinned CDN runtime/extension. Run with
-// network access; a mocked worker cannot verify a checkpointed database export.
+// These run the real vendored runtime and TPC-H extension; a mocked worker
+// cannot verify a checkpointed database export. They take a while, so opt in.
 for (const scale of [0.01, 0.1, 1]) {
-  test(`generates, downloads and opens a real v1.5.0 TPC-H database at SF ${scale}`, async ({
+  test(`generates, downloads and opens a real v2.0 TPC-H database at SF ${scale}`, async ({
     page,
   }) => {
     test.skip(
-      process.env.TPCH_BROWSER_NETWORK !== "1",
-      "Set TPCH_BROWSER_NETWORK=1 to download and run the real runtime/extension",
+      process.env.TPCH_BROWSER_GENERATE !== "1",
+      "Set TPCH_BROWSER_GENERATE=1 to run the real runtime/extension",
     );
     test.setTimeout(180_000);
     const counts = await trackWorkers(page);
@@ -65,8 +66,11 @@ for (const scale of [0.01, 0.1, 1]) {
     await expect(downloadLink).toBeVisible({ timeout: 150_000 });
     expect(await counts()).toEqual({ created: 1, terminated: 1 });
     expect(runtimeRequests.length).toBeGreaterThan(0);
+    // Nothing is fetched from a CDN or the public extension repository.
     expect(
-      runtimeRequests.every((url) => url.includes("@1.33.1-dev65.0/")),
+      runtimeRequests.some((url) =>
+        url.endsWith("/wasm_base/tpch.duckdb_extension.wasm"),
+      ),
     ).toBe(true);
 
     const downloaded = page.waitForEvent("download");
@@ -76,19 +80,21 @@ for (const scale of [0.01, 0.1, 1]) {
     const bytes = await readFile((await download.path())!);
     expect(bytes.length).toBeGreaterThan(1_000_000);
     expect(bytes.subarray(8, 12).toString()).toBe("DUCK");
-    expect(bytes.readBigUInt64LE(12)).toBe(68n);
-    // The compatibility version lives in each checkpoint header, not at byte 12.
-    expect(bytes.readBigUInt64LE(4096 + 56)).toBe(7n);
-    expect(bytes.readBigUInt64LE(8192 + 56)).toBe(7n);
+    // DuckDB 2.0 development builds stamp 999; releases stamp 69.
+    expect([69n, 999n]).toContain(bytes.readBigUInt64LE(12));
+    // The compatibility version lives in each checkpoint header.
+    expect(bytes.readBigUInt64LE(4096 + 56)).toBe(69n);
+    expect(bytes.readBigUInt64LE(8192 + 56)).toBe(69n);
 
     await page.getByRole("button", { name: "Open generated sample" }).click();
     await expect(
       page.getByRole("heading", { name: `tpch-sf${scale}.duckdb` }),
     ).toBeVisible();
     await expect(page.getByRole("tab", { name: "Physical map" })).toBeVisible();
+    // v2.0 storage records exact segment sizes: no legacy warning.
     await expect(
       page.getByRole("status", { name: "Storage compatibility warning" }),
-    ).toContainText("v1.5.0");
+    ).toHaveCount(0);
     await expect(page.locator(".app-shell")).not.toHaveClass(/is-landing/);
     await expect(page.locator(".app-shell")).toHaveCSS(
       "background-image",
@@ -107,7 +113,7 @@ for (const scale of [0.01, 0.1, 1]) {
     await expect(page.locator(".inspection-notes")).not.toContainText(
       "decoding is incomplete",
     );
-    await expect(page.locator(".inspection-notes")).toContainText(
+    await expect(page.locator(".inspection-notes")).not.toContainText(
       "byte sizes are absent",
     );
   });
@@ -193,7 +199,7 @@ test("failed runtime downloads show actionable errors", async ({ page }) => {
   await page
     .getByRole("button", { name: "Generate TPC-H", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText("cdn.jsdelivr.net", {
+  await expect(page.getByRole("alert")).toContainText("DuckDB runtime", {
     timeout: 30_000,
   });
   await expect(page.getByRole("alert")).toContainText("SF 0.01");

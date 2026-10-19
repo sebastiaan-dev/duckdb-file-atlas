@@ -1,0 +1,29 @@
+{
+  "package": "1.33.1-dev107.0",
+  "duckdb": "v2.0.0-dev88537",
+  "sourceId": "f8f3f4dcd9",
+  "upstreamRun": "https://github.com/duckdb/duckdb-wasm/actions/runs/39224314730",
+  "repository": "sebastiaan-dev/duckdb-file-atlas",
+  "tag": "duckdb-wasm-1.33.1-dev107.0",
+  "release": "https://github.com/sebastiaan-dev/duckdb-file-atlas/releases/download/duckdb-wasm-1.33.1-dev107.0/",
+  "files": [
+    {
+      "asset": "duckdb-base.wasm",
+      "path": "duckdb-base.wasm",
+      "size": 33729474,
+      "sha256": "6f885e18cbe9931bc5e15f0756167665458115f6c9d22585033053e60ca88c71"
+    },
+    {
+      "asset": "duckdb-browser-base.worker.js",
+      "path": "duckdb-browser-base.worker.js",
+      "size": 796199,
+      "sha256": "0c3a4310f42a4720d74fac7c7d2af1d087ae98e570e33f4d98ded192254d61a8"
+    },
+    {
+      "asset": "tpch.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_base/tpch.duckdb_extension.wasm",
+      "size": 1082353,
+      "sha256": "14c3f376a601d18f3a9fe1844d2c71b9048027ec6b628caf461c652fca25224d"
+    }
+  ]
+}

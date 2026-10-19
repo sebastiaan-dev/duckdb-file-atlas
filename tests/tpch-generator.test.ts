@@ -2,18 +2,51 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   generateTpchDatabase,
   tpchGenerationError,
-  TPCH_WASM_VERSION,
+  tpchRuntimeURL,
 } from "../src/lib/tpch-generator";
+import runtime from "../vendor/duckdb-wasm/runtime.json";
 import type { TpchScaleFactor } from "../src/lib/tpch-generator";
 
 let calls: string[];
 let query: (sql: string) => Promise<void>;
 let instantiate: () => Promise<void>;
 let worker: TestWorker | undefined;
-let workerSource: Blob | undefined;
 let bundleURLs: string[];
 let openConfig: unknown;
 let bytes: Uint8Array;
+
+/** Minimal in-memory OPFS: directories of named files and subdirectories. */
+class FakeDirectory {
+  readonly kind = "directory";
+  children = new Map<string, FakeDirectory | FakeFile>();
+  async *entries() {
+    yield* [...this.children.entries()];
+  }
+  async getDirectoryHandle(name: string) {
+    let child = this.children.get(name);
+    if (!child) this.children.set(name, (child = new FakeDirectory()));
+    return child as FakeDirectory;
+  }
+  async removeEntry(name: string) {
+    this.children.delete(name);
+  }
+}
+class FakeFile {
+  readonly kind = "file";
+  constructor(public bytes: Uint8Array) {}
+  async getFile() {
+    return new File([this.bytes], "file");
+  }
+}
+let opfs: FakeDirectory;
+/** Every file path in the fake OPFS, for leak checks. */
+function opfsFiles(directory = opfs, path = ""): string[] {
+  return [...directory.children].flatMap(([name, child]) =>
+    child instanceof FakeDirectory
+      ? opfsFiles(child, `${path}${name}/`)
+      : [`${path}${name}`],
+  );
+}
 
 class TestWorker extends EventTarget {
   terminated = false;
@@ -29,10 +62,10 @@ class TestWorker extends EventTarget {
 mock.module("@duckdb/duckdb-wasm", () => ({
   VoidLogger: class {},
   selectBundle: async (bundles: {
-    eh: { mainModule: string; mainWorker: string };
+    base: { mainModule: string; mainWorker: string };
   }) => {
-    bundleURLs = Object.values(bundles.eh);
-    return bundles.eh;
+    bundleURLs = Object.values(bundles.base);
+    return bundles.base;
   },
   AsyncDuckDB: class {
     instantiate() {
@@ -43,18 +76,30 @@ mock.module("@duckdb/duckdb-wasm", () => ({
     }
     async connect() {
       return {
-        query: (sql: string) => {
+        query: async (sql: string) => {
           calls.push(sql);
-          return query(sql);
+          await query(sql);
+          // DuckDB-WASM decides where in OPFS an `opfs://` file lives.
+          const attached = /^ATTACH 'opfs:\/\/([^']+)'/.exec(sql)?.[1];
+          if (attached) {
+            const fs = await (
+              await opfs.getDirectoryHandle("duckdb")
+            ).getDirectoryHandle("fs");
+            fs.children.set(attached, new FakeFile(bytes));
+            fs.children.set(`${attached}.wal`, new FakeFile(new Uint8Array()));
+            const scratch = await (
+              await opfs.getDirectoryHandle("duckdb")
+            ).getDirectoryHandle("scratch");
+            (await scratch.getDirectoryHandle("instance")).children.set(
+              "pool-0",
+              new FakeFile(new Uint8Array()),
+            );
+          }
         },
         close: async () => {
           calls.push("close");
         },
       };
-    }
-    async copyFileToBuffer(name: string) {
-      calls.push(`export ${name}`);
-      return bytes;
     }
     detach() {
       calls.push("detach worker");
@@ -63,16 +108,15 @@ mock.module("@duckdb/duckdb-wasm", () => ({
 }));
 
 const originalWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
-const originalCreate = URL.createObjectURL;
-const originalRevoke = URL.revokeObjectURL;
-let revoked: string[];
+const originalStorage = Object.getOwnPropertyDescriptor(
+  globalThis.navigator,
+  "storage",
+);
 
 beforeEach(() => {
   calls = [];
   bundleURLs = [];
-  revoked = [];
   worker = undefined;
-  workerSource = undefined;
   openConfig = undefined;
   query = async () => {};
   instantiate = async () => {};
@@ -82,21 +126,20 @@ beforeEach(() => {
     configurable: true,
     value: TestWorker,
   });
-  URL.createObjectURL = (blob) => {
-    workerSource = blob as Blob;
-    return "blob:tpch-worker";
-  };
-  URL.revokeObjectURL = (url) => {
-    revoked.push(url);
-  };
+  opfs = new FakeDirectory();
+  Object.defineProperty(globalThis.navigator, "storage", {
+    configurable: true,
+    value: { getDirectory: async () => opfs },
+  });
 });
 
 afterEach(() => {
   if (originalWorker)
     Object.defineProperty(globalThis, "Worker", originalWorker);
   else Reflect.deleteProperty(globalThis, "Worker");
-  URL.createObjectURL = originalCreate;
-  URL.revokeObjectURL = originalRevoke;
+  if (originalStorage)
+    Object.defineProperty(globalThis.navigator, "storage", originalStorage);
+  else Reflect.deleteProperty(globalThis.navigator, "storage");
 });
 
 describe("TPC-H generator", () => {
@@ -120,6 +163,12 @@ describe("TPC-H generator", () => {
 
   test("checkpoints and detaches the real file before export, then cleans up", async () => {
     const progress: string[] = [];
+    // An interrupted earlier run left files behind; unrelated files stay.
+    const stale = await (
+      await opfs.getDirectoryHandle("duckdb")
+    ).getDirectoryHandle("fs");
+    stale.children.set("atlas-tpch-old.duckdb", new FakeFile(bytes));
+    stale.children.set("someone-else.duckdb", new FakeFile(bytes));
     const file = await generateTpchDatabase({
       onProgress: (message) => progress.push(message),
     });
@@ -127,35 +176,35 @@ describe("TPC-H generator", () => {
     expect(file.size).toBe(12288);
     expect(openConfig).toEqual({
       path: ":memory:",
-      useDirectIO: true,
       maximumThreads: 1,
+      allowUnsignedExtensions: true,
+      opfs: { fileHandling: "auto" },
     });
     expect(calls).toEqual([
       "SET memory_limit = '512MB'",
-      "SET custom_extension_repository = 'https://extensions.duckdb.org'",
+      `SET custom_extension_repository = '${tpchRuntimeURL("extensions")}'`,
       "INSTALL tpch",
       "LOAD tpch",
-      "ATTACH 'tpch.duckdb' AS generated (STORAGE_VERSION 'v1.5.0')",
+      expect.stringMatching(
+        /^ATTACH 'opfs:\/\/atlas-tpch-[0-9a-f-]{36}\.duckdb' AS generated \(STORAGE_VERSION 'v2\.0\.0'\)$/,
+      ),
       "CALL dbgen(sf = 1, catalog = 'generated')",
       "CHECKPOINT generated",
       "DETACH generated",
       "close",
-      "export tpch.duckdb",
       "detach worker",
     ]);
+    // The OPFS copy, its WAL and this run's scratch directory are removed.
+    expect(opfsFiles()).toEqual(["duckdb/fs/someone-else.duckdb"]);
     expect(progress).toHaveLength(5);
-    expect(
-      bundleURLs.every((url) =>
-        url.startsWith(
-          `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${TPCH_WASM_VERSION}/`,
-        ),
-      ),
-    ).toBe(true);
-    expect(await workerSource!.text()).toBe(
-      `importScripts(${JSON.stringify(bundleURLs[1])});`,
-    );
+    // Runtime, worker and extension all come from this site's vendored copy.
+    expect(bundleURLs).toEqual([
+      tpchRuntimeURL("duckdb-base.wasm"),
+      tpchRuntimeURL("duckdb-browser-base.worker.js"),
+    ]);
+    expect(bundleURLs[0]).toContain(`/duckdb-runtime/${runtime.sourceId}/`);
+    expect(String(worker?.url)).toBe(bundleURLs[1]);
     expect(worker?.terminated).toBe(true);
-    expect(revoked).toEqual(["blob:tpch-worker"]);
   });
 
   test("supports the bounded larger factor", async () => {
@@ -171,7 +220,6 @@ describe("TPC-H generator", () => {
     };
     await expect(generateTpchDatabase()).rejects.toThrow("offline");
     expect(worker?.terminated).toBe(true);
-    expect(revoked).toEqual(["blob:tpch-worker"]);
     expect(calls.some((sql) => sql.startsWith("CALL dbgen"))).toBe(false);
   });
 
@@ -188,8 +236,9 @@ describe("TPC-H generator", () => {
       generateTpchDatabase({ signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(worker?.terminated).toBe(true);
-    expect(revoked).toEqual(["blob:tpch-worker"]);
     expect(calls).not.toContain("CHECKPOINT generated");
+    // Cancelling mid-generation still removes the partial OPFS file.
+    expect(opfsFiles()).toEqual([]);
   });
 
   test("worker startup errors do not leave instantiate pending", async () => {
@@ -201,7 +250,6 @@ describe("TPC-H generator", () => {
       "worker failed to start",
     );
     expect(worker?.terminated).toBe(true);
-    expect(revoked).toEqual(["blob:tpch-worker"]);
   });
 
   test("does not offer malformed exports", async () => {
@@ -212,11 +260,9 @@ describe("TPC-H generator", () => {
     expect(worker?.terminated).toBe(true);
   });
 
-  test("error guidance includes network, CSP and memory recovery", () => {
+  test("error guidance includes connection and memory recovery", () => {
     const message = tpchGenerationError(new Error("network failure"));
-    expect(message).toContain("cdn.jsdelivr.net");
-    expect(message).toContain("extensions.duckdb.org");
-    expect(message).toContain("Blob workers");
+    expect(message).toContain("DuckDB runtime");
     expect(message).toContain("SF 0.01");
     expect(message).toContain("network failure");
   });

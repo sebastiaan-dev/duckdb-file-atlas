@@ -1,0 +1,20 @@
+{
+  "name": "@duckdb/duckdb-wasm",
+  "version": "1.33.1-dev107.0",
+  "description": "DuckDB powered by WebAssembly (vendored CI build, see README.md)",
+  "license": "MIT",
+  "type": "module",
+  "module": "dist/duckdb-browser.mjs",
+  "types": "dist/duckdb-browser.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/duckdb-browser.d.ts",
+      "import": "./dist/duckdb-browser.mjs"
+    }
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "apache-arrow": "^17.0.0",
+    "qs": "^6.14.1"
+  }
+}

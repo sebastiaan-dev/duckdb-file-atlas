@@ -7,3 +7,6 @@ dist/
 .env*
 
 .cache/
+
+# Vendored DuckDB-WASM runtime assets (see vendor/duckdb-wasm/README.md).
+public/duckdb-runtime/

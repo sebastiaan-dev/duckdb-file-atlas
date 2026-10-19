@@ -16,15 +16,17 @@ input and decoded by the application's inspection worker. The semantic-selection
 case uses the supported manifest fallback with unsupported catalog metadata.
 Tests drive actual pointer coordinates, keyboard focus, selections and paging.
 
-The real in-browser TPC-H generation test is opt-in because it downloads the
-pinned WASM runtime and extension. Run it with network access:
+The real in-browser TPC-H generation tests are opt-in because they run the
+vendored DuckDB 2.0 runtime and TPC-H extension (served by the dev server from
+`public/duckdb-runtime/`) at SF 0.01, 0.1 and 1:
 
 ```sh
-TPCH_BROWSER_NETWORK=1 bun run test:browser
+TPCH_BROWSER_GENERATE=1 bun run test:browser
 ```
 
-It exports and downloads a real file, checks its headers, and opens it through
-the application's native decoder, asserting all eight tables are present.
+They export and download a real v2.0 file, check its headers, and open it
+through the application's native decoder, asserting all eight tables are
+present and no legacy-storage warning is shown.
 Offline tests exercise cancellation/retry and failed worker startup using
 blocked network routes. The runtime must not download just by opening the app.
 
