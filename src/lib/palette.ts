@@ -57,6 +57,50 @@ export function stableColor(value: string, palette: readonly string[]) {
   return palette[Math.abs(hash) % palette.length] ?? "#d6d6df";
 }
 
+/**
+ * Shades cycled by row-group number within a table's color. Neighbouring row
+ * groups always differ, and the table hue stays recognisable at any count.
+ */
+const SHADES = [
+  (color: string) => color,
+  (color: string) => `color-mix(in srgb, ${color} 55%, white)`,
+  (color: string) => `color-mix(in srgb, ${color} 72%, black)`,
+  (color: string) => `color-mix(in srgb, ${color} 30%, white)`,
+] as const;
+export const ROW_GROUP_SHADE_COUNT = SHADES.length;
+
+export function rowGroupShade(table: string, shade: number) {
+  return SHADES[((shade % SHADES.length) + SHADES.length) % SHADES.length](
+    stableColor(table, tablePalette),
+  );
+}
+
+export interface RowGroupRef {
+  table: string;
+  rowGroup: number;
+}
+
+export function rowGroupColor({ table, rowGroup }: RowGroupRef) {
+  return rowGroupShade(table, rowGroup);
+}
+
+/** Row groups with segments in this block, in table then row-group order. */
+export function blockRowGroups(
+  block: FileBlock,
+  segments: Segment[],
+): RowGroupRef[] {
+  const seen = new Map<string, RowGroupRef>();
+  for (const segment of segments)
+    if (segment.blockId === block.id)
+      seen.set(JSON.stringify([segment.table, segment.rowGroup]), {
+        table: segment.table,
+        rowGroup: segment.rowGroup,
+      });
+  return [...seen.values()].sort(
+    (a, b) => a.table.localeCompare(b.table) || a.rowGroup - b.rowGroup,
+  );
+}
+
 export function blockOwners(
   block: FileBlock,
   mode: ColorMode,
@@ -81,6 +125,10 @@ export function blockOwners(
     ];
   if (mode === "compression")
     return [...new Set(owners.map((segment) => segment.compression))];
+  if (mode === "rowgroup")
+    return blockRowGroups(block, segments).map(
+      ({ table, rowGroup }) => `${table} · RG ${rowGroup}`,
+    );
   return [];
 }
 
@@ -101,6 +149,13 @@ export function blockCellColors(
     if (block.usedBytes == null || block.size <= 0) return [roleColors.unknown];
     const ratio = Math.max(0, Math.min(1, block.usedBytes / block.size));
     return [spaceRamp[rampStep(ratio, utilizationSteps)]];
+  }
+  // Only column data belongs to a row group; other roles keep their color.
+  if (mode === "rowgroup" && block.role !== "data")
+    return [roleColors[block.role]];
+  if (mode === "rowgroup") {
+    const groups = blockRowGroups(block, segments);
+    return groups.length ? groups.map(rowGroupColor) : [roleColors.unknown];
   }
   const owners = blockOwners(block, mode, segments);
   return owners.length

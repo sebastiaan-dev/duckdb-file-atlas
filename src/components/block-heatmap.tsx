@@ -28,6 +28,8 @@ export interface BlockHeatmapProps {
   onSelect: (block: FileBlock) => void;
   /** Blocks in the current multi-block selection, if any. */
   rangeBlockIds?: Set<number> | null;
+  /** Blocks of a focused group (e.g. one row group); all others are dimmed. */
+  focusBlockIds?: Set<number> | null;
   /** Fixed end of a range; Shift+click and Shift+arrows extend from it. */
   rangeAnchorId?: number | null;
   /** Select every block between two IDs in file order (inclusive). */
@@ -207,6 +209,7 @@ export const BlockHeatmap = memo(function BlockHeatmap({
   matchingBlockIds,
   onSelect,
   rangeBlockIds = null,
+  focusBlockIds = null,
   rangeAnchorId = null,
   onSelectRange,
   cellSize,
@@ -263,7 +266,9 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                 ? block.usedBytes == null
                 : colorMode === "fragmentation"
                   ? internalFreeBytes(block) == null
-                  : colorMode !== "role" && owners.length === 0)),
+                  : colorMode === "rowgroup"
+                    ? block.role === "data" && owners.length === 0
+                    : colorMode !== "role" && owners.length === 0)),
           label: `Block ${block.id}, ${block.role}, offset ${offset(block.offset)}, ${bytes(block.size)}${owners.length ? `, ${owners.join(", ")}` : ""}`,
         };
       }),
@@ -560,12 +565,18 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                           column={col}
                           register={register}
                           selected={selectedBlockId === model.block.id}
-                          inRange={rangeBlockIds?.has(model.block.id) ?? false}
+                          inRange={
+                            (rangeBlockIds?.has(model.block.id) ||
+                              focusBlockIds?.has(model.block.id)) ??
+                            false
+                          }
                           active={hover?.id === model.block.id}
                           linked={linkedIds.has(model.block.id)}
                           dimmed={
-                            matchingBlockIds != null &&
-                            !matchingBlockIds.has(model.block.id)
+                            (matchingBlockIds != null &&
+                              !matchingBlockIds.has(model.block.id)) ||
+                            (focusBlockIds != null &&
+                              !focusBlockIds.has(model.block.id))
                           }
                           tabbable={tabbableId === model.block.id}
                         />

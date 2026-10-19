@@ -13,6 +13,8 @@ export type RangeByteKind =
 
 export interface RangeOwner {
   name: string;
+  /** Set for row-group owners so the UI can select the row group. */
+  rowGroup?: { table: string; rowGroup: number };
   /** Measured bytes from byte ranges; never inferred from neighbours. */
   bytes: number;
   blocks: number;
@@ -39,6 +41,8 @@ export interface BlockRangeSummary {
   tables: RangeOwner[];
   /** Keyed `table / index`. */
   indexes: RangeOwner[];
+  /** Column data per row group, labelled `table · RG n`. */
+  rowGroups: RangeOwner[];
   compressions: RangeOwner[];
   segmentCount: number;
 }
@@ -84,9 +88,11 @@ function addOwner(
   name: string,
   bytes: number,
   blockId: number,
+  rowGroup?: RangeOwner["rowGroup"],
 ) {
   const owner = owners.get(name) ?? {
     name,
+    ...(rowGroup ? { rowGroup } : {}),
     bytes: 0,
     blocks: 0,
     blockIds: new Set<number>(),
@@ -100,11 +106,7 @@ function sortedOwners(
   owners: Map<string, RangeOwner & { blockIds: Set<number> }>,
 ): RangeOwner[] {
   return [...owners.values()]
-    .map(({ name, bytes, blockIds }) => ({
-      name,
-      bytes,
-      blocks: blockIds.size,
-    }))
+    .map(({ blockIds, ...owner }) => ({ ...owner, blocks: blockIds.size }))
     .sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name));
 }
 
@@ -124,6 +126,7 @@ export function summarizeBlockRange(
   const composition = new Map<RangeByteKind, number>();
   const tables = new Map<string, RangeOwner & { blockIds: Set<number> }>();
   const indexOwners = new Map<string, RangeOwner & { blockIds: Set<number> }>();
+  const rowGroups = new Map<string, RangeOwner & { blockIds: Set<number> }>();
   const compressions = new Map<
     string,
     RangeOwner & { blockIds: Set<number> }
@@ -178,6 +181,13 @@ export function summarizeBlockRange(
       if (segment) {
         segments.add(segment.id);
         addOwner(tables, segment.table, size, block.id);
+        addOwner(
+          rowGroups,
+          `${segment.table} · RG ${segment.rowGroup}`,
+          size,
+          block.id,
+          { table: segment.table, rowGroup: segment.rowGroup },
+        );
         if (segment.compression)
           addOwner(compressions, segment.compression, size, block.id);
       }
@@ -225,6 +235,7 @@ export function summarizeBlockRange(
     freeBlocks: roles.get("free")?.blocks ?? 0,
     tables: sortedOwners(tables),
     indexes: sortedOwners(indexOwners),
+    rowGroups: sortedOwners(rowGroups),
     compressions: sortedOwners(compressions),
     segmentCount: segments.size,
   };

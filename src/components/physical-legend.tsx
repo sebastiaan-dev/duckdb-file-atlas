@@ -7,6 +7,8 @@ import {
   fragmentationSteps,
   rampLabels,
   roleColors,
+  ROW_GROUP_SHADE_COUNT,
+  rowGroupShade,
   spaceRamp,
   stableColor,
   tablePalette,
@@ -40,6 +42,8 @@ const EXPLANATIONS: Record<ColorMode, string> = {
     "Blocks colored by owning column or index. Blocks shared by several owners show split colors.",
   compression:
     "Blocks colored by the compression of the segments they store. Index blocks have no column codec.",
+  rowgroup:
+    "Blocks colored by the row groups they store: each table keeps its color, and successive row groups cycle through its shades. Blocks shared by several row groups show split colors; index and metadata blocks keep their role color.",
   fragmentation:
     "Unused bytes inside measured data and index blocks, as a share of the block. Whole free blocks are not counted.",
   utilization:
@@ -84,17 +88,40 @@ export const PhysicalLegend = memo(function PhysicalLegend({
           ? owned.some((block) => block.usedBytes == null)
           : mode === "role"
             ? roles.has("unknown")
-            : owned.some(
-                (block) =>
-                  !blockOwners(
-                    block,
-                    mode,
-                    segmentsByBlock.get(block.id) ?? EMPTY,
-                  ).length,
-              );
+            : mode === "rowgroup"
+              ? roles.has("unknown") ||
+                owned.some(
+                  (block) =>
+                    block.role === "data" &&
+                    !blockOwners(
+                      block,
+                      mode,
+                      segmentsByBlock.get(block.id) ?? EMPTY,
+                    ).length,
+                )
+              : owned.some(
+                  (block) =>
+                    !blockOwners(
+                      block,
+                      mode,
+                      segmentsByBlock.get(block.id) ?? EMPTY,
+                    ).length,
+                );
     return { roles, free: roles.has("free"), unknown };
   }, [blocks, mode, segmentsByBlock]);
   const categories = useMemo(() => {
+    if (mode === "rowgroup")
+      return [...new Set(segments.map((segment) => segment.table))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({
+          name,
+          // A swatch shows the table's full shade cycle.
+          color: `linear-gradient(90deg, ${Array.from(
+            { length: ROW_GROUP_SHADE_COUNT },
+            (_, i) =>
+              `${rowGroupShade(name, i)} ${(i / ROW_GROUP_SHADE_COUNT) * 100}% ${((i + 1) / ROW_GROUP_SHADE_COUNT) * 100}%`,
+          ).join(", ")})`,
+        }));
     if (mode !== "table" && mode !== "column" && mode !== "compression")
       return [];
     const names =
@@ -127,8 +154,15 @@ export const PhysicalLegend = memo(function PhysicalLegend({
       mode === "fragmentation" ? fragmentationSteps : utilizationSteps,
     );
     entries = spaceRamp.map((color, step) => ({ label: labels[step], color }));
-  } else
-    entries = categories.map(({ name, color }) => ({ label: name, color }));
+  } else if (mode === "rowgroup")
+    // Role entries first so table overflow never hides them.
+    entries = [
+      ...(["index", "metadata"] as const)
+        .filter((role) => presence.roles.has(role))
+        .map((role) => ({ label: ROLE_LABELS[role], color: roleColors[role] })),
+      ...categories.map(({ name, color }) => ({ label: name, color })),
+    ];
+  else entries = categories.map(({ name, color }) => ({ label: name, color }));
   // Free and unknown stay visible even when categories overflow.
   const showFree = mode !== "role" && presence.free;
   const hidden =
@@ -138,7 +172,10 @@ export const PhysicalLegend = memo(function PhysicalLegend({
   const shown = hidden ? entries.slice(0, CATEGORY_LIMIT) : entries;
   const pending =
     !semanticReady &&
-    (mode === "table" || mode === "column" || mode === "compression");
+    (mode === "table" ||
+      mode === "column" ||
+      mode === "compression" ||
+      mode === "rowgroup");
   return (
     <div className="legend physical-legend" aria-label="Block map legend">
       {pending ? (

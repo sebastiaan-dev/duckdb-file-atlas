@@ -1483,8 +1483,38 @@ summary:focus-visible {
   z-index: 1;
   background: var(--panel);
 }
-.row-label > span {
+.row-label > span,
+.row-label-pick {
   font: var(--text-xs) var(--mono);
+}
+/* The row-group label selects the row group across both maps. */
+.row-label-pick {
+  justify-self: start;
+  margin: -2px -5px;
+  padding: 2px 5px;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  text-decoration: underline dotted
+    color-mix(in srgb, var(--muted), transparent 40%);
+  text-underline-offset: 3px;
+}
+.row-label-pick:hover {
+  color: var(--chart-primary);
+  background: color-mix(in srgb, var(--chart-primary), transparent 92%);
+}
+.row-label.is-selected {
+  box-shadow: inset 3px 0 0 var(--chart-primary);
+  background: color-mix(in srgb, var(--panel), var(--chart-primary) 8%);
+}
+.row-label.is-selected .row-label-pick {
+  color: var(--chart-primary);
+}
+.row-group-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 .row-label small {
   color: var(--subtle);

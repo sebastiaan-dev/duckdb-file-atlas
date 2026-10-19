@@ -3,7 +3,13 @@ import type { CheckpointDeleteVector } from "./checkpoint-delete";
 export type StorageRole =
   "header" | "metadata" | "data" | "index" | "free" | "unknown";
 export type ColorMode =
-  "role" | "table" | "column" | "compression" | "utilization" | "fragmentation";
+  | "role"
+  | "table"
+  | "column"
+  | "compression"
+  | "rowgroup"
+  | "utilization"
+  | "fragmentation";
 export interface ByteRange {
   /** offset is an absolute file byte offset. */
   id: string;

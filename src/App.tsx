@@ -8,6 +8,14 @@ import { useMediaQuery, usePersistentFlag } from "@/hooks/use-persistent-state";
 import { DenseByteStrip } from "@/components/dense-byte-strip";
 import { BlockRangeDetails } from "@/components/block-range-details";
 import { blocksBetween, summarizeBlockRange } from "@/lib/block-range";
+import {
+  rowGroupKey,
+  rowGroupLabel,
+  summarizeRowGroup,
+  type RowGroupRef,
+} from "@/lib/row-groups";
+import { RowGroupDetails } from "@/components/row-group-details";
+import { blockRowGroups, rowGroupColor } from "@/lib/palette";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
 import {
@@ -246,6 +254,9 @@ function Workspace({
     anchor: number;
     focus: number;
   } | null>(null);
+  // One row group highlighted across the maps and summarised in the inspector.
+  const [rowGroupSelection, setRowGroupSelection] =
+    useState<RowGroupRef | null>(null);
   const [pendingTableScroll, setPendingTableScroll] = useState<string | null>(
     null,
   );
@@ -466,6 +477,7 @@ function Workspace({
 
   const clearSelection = useCallback(() => {
     setBlockRange(null);
+    setRowGroupSelection(null);
     setSelectedBlockId(null);
     setSelectedSegmentId(null);
     setSelectedHeaderSlot(null);
@@ -519,6 +531,8 @@ function Workspace({
   );
 
   const chooseSegment = useCallback((segment: Segment) => {
+    setBlockRange(null);
+    setRowGroupSelection(null);
     setSelectedSegmentId(segment.id);
     setSelectedBlockId(segment.blockId >= 0 ? segment.blockId : null);
     setSelectedHeaderSlot(null);
@@ -526,6 +540,7 @@ function Workspace({
 
   const chooseBlock = useCallback((block: FileBlock) => {
     setBlockRange(null);
+    setRowGroupSelection(null);
     setSelectedBlockId(block.id);
     setView("physical");
     setSelectedSegmentId(null);
@@ -578,11 +593,51 @@ function Workspace({
         return;
       }
       setBlockRange({ anchor: anchorId, focus: focusId });
+      setRowGroupSelection(null);
       setSelectedBlockId(null);
       setSelectedSegmentId(null);
       setSelectedHeaderSlot(null);
     },
     [blocksById, dataBlocks, chooseBlock],
+  );
+  const selectRowGroup = useCallback((ref: RowGroupRef) => {
+    setRowGroupSelection({ table: ref.table, rowGroup: ref.rowGroup });
+    setBlockRange(null);
+    setSelectedBlockId(null);
+    setSelectedSegmentId(null);
+    setSelectedHeaderSlot(null);
+  }, []);
+  // Like a range, any single selection supersedes the row group.
+  const activeRowGroup =
+    rowGroupSelection &&
+    !rangeBlocks &&
+    selectedBlockId == null &&
+    selectedSegmentId == null &&
+    selectedHeaderSlot == null
+      ? rowGroupSelection
+      : null;
+  const rowGroupSummary = useMemo(
+    () =>
+      activeRowGroup
+        ? summarizeRowGroup(
+            activeRowGroup,
+            inspection.segments,
+            dataBlocks,
+            segmentsByBlock,
+            inspection.native?.rowGroupsInfo,
+          )
+        : null,
+    [
+      activeRowGroup,
+      inspection.segments,
+      dataBlocks,
+      segmentsByBlock,
+      inspection.native,
+    ],
+  );
+  const rowGroupBlockIds = useMemo(
+    () => (rowGroupSummary ? new Set(rowGroupSummary.blockIds) : null),
+    [rowGroupSummary],
   );
 
   const loadBlockBytes = useCallback(
@@ -651,6 +706,14 @@ function Workspace({
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingTableScroll, view, logicalSegments]);
+
+  useEffect(() => {
+    const first = rowGroupSummary?.blockIds[0];
+    if (view !== "physical" || first == null) return;
+    document
+      .querySelector<HTMLButtonElement>(`[data-block-id="${first}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [view, rowGroupSummary]);
 
   useEffect(() => {
     if (view !== "physical" || firstMatchingBlockId == null) return;
@@ -998,6 +1061,9 @@ function Workspace({
                         <option value="compression" disabled={!semanticReady}>
                           Compression
                         </option>
+                        <option value="rowgroup" disabled={!semanticReady}>
+                          Row group
+                        </option>
                         {view === "physical" && (
                           <option value="fragmentation">
                             Internal free space
@@ -1149,6 +1215,7 @@ function Workspace({
                       matchingBlockIds={query ? matchingBlockIds : null}
                       onSelect={chooseBlock}
                       rangeBlockIds={rangeBlockIds}
+                      focusBlockIds={rowGroupBlockIds}
                       rangeAnchorId={rangeBlocks ? blockRange!.anchor : null}
                       onSelectRange={selectBlockRange}
                       cellSize={cellSize}
@@ -1261,6 +1328,10 @@ function Workspace({
                               : undefined
                           }
                           onPick={chooseSegment}
+                          selectedRowGroup={
+                            activeRowGroup ? rowGroupKey(activeRowGroup) : null
+                          }
+                          onPickRowGroup={selectRowGroup}
                         />
                         {logicalLayout.hasMore && (
                           <div
@@ -1325,7 +1396,7 @@ function Workspace({
             </section>
             {
               <aside
-                className={`details-panel${selectedBlock || selectedSegment || selectedHeader || rangeSummary ? "" : " is-empty"}`}
+                className={`details-panel${selectedBlock || selectedSegment || selectedHeader || rangeSummary || rowGroupSummary ? "" : " is-empty"}`}
                 aria-label="Selection details"
               >
                 <div className="details-header">
@@ -1335,14 +1406,21 @@ function Workspace({
                         ? `Checkpoint ${selectedHeader.slot}`
                         : rangeSummary
                           ? `Blocks ${rangeSummary.firstId}–${rangeSummary.lastId}`
-                          : selectedSegment
-                            ? selectedSegment.column
-                            : selectedBlock
-                              ? selectedBlock.role === "header"
-                                ? selectedBlock.label
-                                : `Block ${selectedBlock.id}`
-                              : "Inspector"}
+                          : rowGroupSummary
+                            ? `Row group ${rowGroupSummary.rowGroup}`
+                            : selectedSegment
+                              ? selectedSegment.column
+                              : selectedBlock
+                                ? selectedBlock.role === "header"
+                                  ? selectedBlock.label
+                                  : `Block ${selectedBlock.id}`
+                                : "Inspector"}
                     </h2>
+                    {rowGroupSummary && (
+                      <p className="details-subtitle">
+                        {rowGroupSummary.table}
+                      </p>
+                    )}
                     {selectedSegment && !selectedHeader && (
                       <p className="details-subtitle">
                         {selectedSegment.table} · row group{" "}
@@ -1353,7 +1431,8 @@ function Workspace({
                   {(selectedBlock ||
                     selectedSegment ||
                     selectedHeader ||
-                    rangeSummary) && (
+                    rangeSummary ||
+                    rowGroupSummary) && (
                     <button
                       type="button"
                       className="details-close"
@@ -1408,6 +1487,10 @@ function Workspace({
                     block={selectedBlock}
                     blocksById={blocksById}
                     onBlockClick={chooseBlock}
+                    onShowRowGroup={(ref) => {
+                      selectRowGroup(ref);
+                      setView("physical");
+                    }}
                   />
                 ) : selectedBlock ? (
                   <BlockDetails
@@ -1439,6 +1522,7 @@ function Workspace({
                     }
                     loadingBytes={loadingBytes}
                     onSegmentClick={chooseSegment}
+                    onRowGroupClick={selectRowGroup}
                     onBlockClick={(id) => {
                       const block = blocksById.get(id);
                       if (block) chooseBlock(block);
@@ -1448,7 +1532,24 @@ function Workspace({
                     }
                   />
                 ) : rangeSummary ? (
-                  <BlockRangeDetails summary={rangeSummary} />
+                  <BlockRangeDetails
+                    summary={rangeSummary}
+                    onRowGroupClick={selectRowGroup}
+                  />
+                ) : rowGroupSummary ? (
+                  <RowGroupDetails
+                    summary={rowGroupSummary}
+                    blocksById={blocksById}
+                    onBlockClick={(id) => {
+                      const block = blocksById.get(id);
+                      if (block) chooseBlock(block);
+                    }}
+                    onShowOnMap={
+                      view === "physical"
+                        ? undefined
+                        : () => setView("physical")
+                    }
+                  />
                 ) : (
                   <InspectorEmptyState view={view} />
                 )}
@@ -1697,7 +1798,11 @@ const LogicalGroups = memo(function LogicalGroups({
   colors,
   valueColumnKey,
   onPick,
+  selectedRowGroup,
+  onPickRowGroup,
 }: {
+  selectedRowGroup: string | null;
+  onPickRowGroup: (ref: RowGroupRef) => void;
   rowGroupsInfo?: NativeRowGroup[];
   segments: Segment[];
   groups: RowGroupUnit[];
@@ -1851,6 +1956,15 @@ const LogicalGroups = memo(function LogicalGroups({
                       colors={colors}
                       valueColumnKey={valueColumnKey}
                       onPick={onPick}
+                      table={table.name}
+                      rowGroupSelected={
+                        selectedRowGroup ===
+                        rowGroupKey({
+                          table: table.name,
+                          rowGroup: row.group.rowGroup,
+                        })
+                      }
+                      onPickRowGroup={onPickRowGroup}
                     />
                   ))}
                 </div>
@@ -1872,7 +1986,13 @@ const LogicalRow = memo(function LogicalRow({
   colors,
   valueColumnKey,
   onPick,
+  table,
+  rowGroupSelected,
+  onPickRowGroup,
 }: {
+  table: string;
+  rowGroupSelected: boolean;
+  onPickRowGroup: (ref: RowGroupRef) => void;
   summary?: NativeRowGroup;
   model: LogicalRowModel;
   columns: { name: string; type: string }[];
@@ -1886,8 +2006,19 @@ const LogicalRow = memo(function LogicalRow({
   const group = model.group.rowGroup;
   return (
     <>
-      <div className="logical-cell row-label">
-        <span>RG {group}</span>
+      <div
+        className={`logical-cell row-label${rowGroupSelected ? " is-selected" : ""}`}
+      >
+        <button
+          type="button"
+          className="row-label-pick"
+          aria-pressed={rowGroupSelected}
+          aria-label={`Row group ${group} of ${table}: show where it is stored`}
+          title="Show where this row group is stored"
+          onClick={() => onPickRowGroup({ table, rowGroup: group })}
+        >
+          RG {group}
+        </button>
         <small>
           {summary
             ? summary.liveRows === summary.physicalRows
@@ -2093,6 +2224,7 @@ function BlockDetails({
   byteView,
   loadingBytes,
   onSegmentClick,
+  onRowGroupClick,
   onBlockClick,
   onBytePage,
 }: {
@@ -2105,6 +2237,7 @@ function BlockDetails({
   byteView: ByteView;
   loadingBytes: boolean;
   onSegmentClick: (segment: Segment) => void;
+  onRowGroupClick: (ref: RowGroupRef) => void;
   onBlockClick: (id: number) => void;
   onBytePage: (offset: number) => void;
   onShowFreeList?: () => void;
@@ -2398,6 +2531,31 @@ function BlockDetails({
       {segments.length > 0 && (
         <div className="detail-section">
           <div className="detail-section-heading">
+            <span>Row groups</span>
+            <span>{formatNumber(blockRowGroups(block, segments).length)}</span>
+          </div>
+          <div className="link-list">
+            {blockRowGroups(block, segments).map((ref) => (
+              <button
+                type="button"
+                key={rowGroupKey(ref)}
+                className="link-chip"
+                title="Show every block of this row group"
+                onClick={() => onRowGroupClick(ref)}
+              >
+                <i
+                  className="row-group-swatch"
+                  style={{ background: rowGroupColor(ref) }}
+                />
+                {rowGroupLabel(ref)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {segments.length > 0 && (
+        <div className="detail-section">
+          <div className="detail-section-heading">
             <span>Logical ownership</span>
             <span>
               {segments.length} segment{segments.length === 1 ? "" : "s"}
@@ -2566,7 +2724,9 @@ function SegmentDetails({
   blocksById,
   block,
   onBlockClick,
+  onShowRowGroup,
 }: {
+  onShowRowGroup: (ref: RowGroupRef) => void;
   colorMetric?: { label: string; description: string };
   segment: Segment;
   inspection: FileInspection;
@@ -2706,6 +2866,15 @@ function SegmentDetails({
           )}
         </div>
       )}
+      <button
+        className="raw-header-link"
+        type="button"
+        onClick={() => onShowRowGroup(segment)}
+      >
+        <Layers3 size={13} />
+        Show row group {formatNumber(segment.rowGroup)} on disk
+        <ArrowRight size={13} />
+      </button>
       {block && (
         <div className="detail-section">
           <div className="detail-section-heading">

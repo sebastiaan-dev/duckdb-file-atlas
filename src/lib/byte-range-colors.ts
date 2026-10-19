@@ -4,6 +4,7 @@ import {
   stableColor,
   tablePalette,
   roleColors,
+  rowGroupColor,
 } from "./palette";
 import { nodeTypeColor } from "./index-layout";
 import type {
@@ -63,6 +64,16 @@ export function byteRangeAppearance(
       label: mode === "utilization" ? "Space used" : "Internal free space",
       background: blockColor(block, mode, []),
     };
+  if (mode === "rowgroup") {
+    if (range.kind === "index" || !segment)
+      return range.kind === "index"
+        ? { label: "Index nodes (no row group)", background: roleColors.index }
+        : kinds[range.kind];
+    return {
+      label: `${segment.table} · RG ${segment.rowGroup}`,
+      background: rowGroupColor(segment),
+    };
+  }
   if (range.kind === "index") {
     if (mode === "compression" || !index)
       return {

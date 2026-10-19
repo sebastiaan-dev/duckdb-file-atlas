@@ -5,18 +5,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-/** Opt-in native fixture: set DUCKDB_BIN to a v69-capable DuckDB CLI. */
-export async function indexDatabaseFixture() {
+/** Builds a real database with DUCKDB_BIN (a v69-capable DuckDB CLI). */
+async function nativeFixture(name: string, sql: (db: string) => string) {
   if (!process.env.DUCKDB_BIN) throw new Error("DUCKDB_BIN is required");
-  const directory = await mkdtemp(join(tmpdir(), "atlas-browser-index-"));
-  const path = join(directory, "indexes.duckdb");
+  const directory = await mkdtemp(join(tmpdir(), "atlas-browser-native-"));
+  const path = join(directory, name);
   try {
     await promisify(execFile)(process.env.DUCKDB_BIN, [
       "-no-agent",
       "-batch",
       "-c",
-      `
-      ATTACH '${path.replaceAll("'", "''")}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+      sql(path.replaceAll("'", "''")),
+    ]);
+    return {
+      name,
+      mimeType: "application/octet-stream",
+      buffer: await readFile(path),
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Opt-in native fixture: set DUCKDB_BIN to a v69-capable DuckDB CLI. */
+export function indexDatabaseFixture() {
+  return nativeFixture(
+    "browser-indexes.duckdb",
+    (path) => `
+      ATTACH '${path}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
       CREATE TABLE db.t AS SELECT i, i % 13 AS duplicate FROM range(15000) t(i);
       CREATE INDEX named_id ON db.t(i);
       CREATE INDEX named_duplicate ON db.t(duplicate);
@@ -25,15 +41,27 @@ export async function indexDatabaseFixture() {
       DELETE FROM db.t WHERE i % 3 = 0;
       CHECKPOINT db;
     `,
-    ]);
-    return {
-      name: "browser-indexes.duckdb",
-      mimeType: "application/octet-stream",
-      buffer: await readFile(path),
-    };
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  );
+}
+
+/**
+ * Opt-in native fixture with several row groups: `wide` has three, and an
+ * append after the first checkpoint stores its last row group apart.
+ */
+export function rowGroupDatabaseFixture() {
+  return nativeFixture(
+    "browser-row-groups.duckdb",
+    (path) => `
+      ATTACH '${path}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+      CREATE TABLE db.wide AS
+        SELECT i, i * 7 AS v, 'value ' || (i % 97) AS s FROM range(245760) t(i);
+      CREATE TABLE db.small AS SELECT i FROM range(1000) t(i);
+      CHECKPOINT db;
+      INSERT INTO db.wide
+        SELECT i, i * 7, 'value ' || (i % 97) FROM range(245760, 300000) t(i);
+      CHECKPOINT db;
+    `,
+  );
 }
 
 export const DATA_START = 3 * 4096;

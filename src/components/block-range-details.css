@@ -70,6 +70,16 @@
   text-align: right;
 }
 .range-owner-list li {
+  display: block;
+  padding: 0;
+}
+.range-owner-row {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+  font: inherit;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
@@ -77,6 +87,12 @@
   padding: 5px 0;
   color: var(--muted);
   font-size: var(--text-xs);
+}
+button.range-owner-row:hover {
+  color: var(--ink);
+}
+button.range-owner-row:hover .range-owner-bar {
+  background: color-mix(in srgb, var(--chart-empty), var(--ink) 8%);
 }
 .range-owner-bar {
   grid-column: 2 / -1;

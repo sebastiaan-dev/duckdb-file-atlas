@@ -3,6 +3,7 @@ import { formatBytes, formatNumber } from "@/lib/format";
 import {
   compressionPalette,
   roleColors,
+  rowGroupColor,
   stableColor,
   tablePalette,
 } from "@/lib/palette";
@@ -11,6 +12,7 @@ import type {
   RangeByteKind,
   RangeOwner,
 } from "@/lib/block-range";
+import type { RowGroupRef } from "@/lib/row-groups";
 import type { StorageRole } from "@/lib/types";
 import "./block-range-details.css";
 
@@ -78,11 +80,13 @@ function OwnerList({
   owners,
   total,
   color,
+  onPick,
 }: {
   title: string;
   owners: RangeOwner[];
   total: number;
-  color: (name: string) => string;
+  color: (owner: RangeOwner) => string;
+  onPick?: (owner: RangeOwner) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (!owners.length) return null;
@@ -95,21 +99,40 @@ function OwnerList({
       </div>
       <ul className="range-owner-list">
         {shown.map((owner) => (
-          <li
-            key={owner.name}
-            title={`${owner.name}: ${formatBytes(owner.bytes, true)} in ${formatNumber(owner.blocks)} block${owner.blocks === 1 ? "" : "s"}`}
-          >
-            <i style={{ background: color(owner.name) }} />
-            <span>{owner.name}</span>
-            <strong>{formatBytes(owner.bytes)}</strong>
-            <span className="range-owner-bar" aria-hidden="true">
-              <b
-                style={{
-                  width: `${(owner.bytes / Math.max(1, total)) * 100}%`,
-                  background: color(owner.name),
-                }}
-              />
-            </span>
+          <li key={owner.name}>
+            {/* Pickable owners are buttons; the grid layout is shared. */}
+            {(() => {
+              const content = (
+                <>
+                  <i style={{ background: color(owner) }} />
+                  <span>{owner.name}</span>
+                  <strong>{formatBytes(owner.bytes)}</strong>
+                  <span className="range-owner-bar" aria-hidden="true">
+                    <b
+                      style={{
+                        width: `${(owner.bytes / Math.max(1, total)) * 100}%`,
+                        background: color(owner),
+                      }}
+                    />
+                  </span>
+                </>
+              );
+              const title = `${owner.name}: ${formatBytes(owner.bytes, true)} in ${formatNumber(owner.blocks)} block${owner.blocks === 1 ? "" : "s"}`;
+              return onPick ? (
+                <button
+                  type="button"
+                  className="range-owner-row"
+                  title={`${title}. Show every block of this row group.`}
+                  onClick={() => onPick(owner)}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div className="range-owner-row" title={title}>
+                  {content}
+                </div>
+              );
+            })()}
           </li>
         ))}
       </ul>
@@ -129,7 +152,13 @@ function OwnerList({
 }
 
 /** Inspector content for a multi-block selection on the physical map. */
-export function BlockRangeDetails({ summary }: { summary: BlockRangeSummary }) {
+export function BlockRangeDetails({
+  summary,
+  onRowGroupClick,
+}: {
+  summary: BlockRangeSummary;
+  onRowGroupClick?: (ref: RowGroupRef) => void;
+}) {
   const { totalBytes, used, internalFree, unmeasuredBlocks, composition } =
     summary;
   const nonFreeBlocks = summary.blockCount - summary.freeBlocks;
@@ -253,7 +282,20 @@ export function BlockRangeDetails({ summary }: { summary: BlockRangeSummary }) {
         title="Tables"
         owners={summary.tables}
         total={totalBytes}
-        color={(name) => stableColor(name, tablePalette)}
+        color={(owner) => stableColor(owner.name, tablePalette)}
+      />
+      <OwnerList
+        title="Row groups"
+        owners={summary.rowGroups}
+        total={totalBytes}
+        color={(owner) =>
+          owner.rowGroup ? rowGroupColor(owner.rowGroup) : roleColors.unknown
+        }
+        onPick={
+          onRowGroupClick
+            ? (owner) => owner.rowGroup && onRowGroupClick(owner.rowGroup)
+            : undefined
+        }
       />
       <OwnerList
         title="Indexes"
@@ -265,7 +307,7 @@ export function BlockRangeDetails({ summary }: { summary: BlockRangeSummary }) {
         title="Compression"
         owners={summary.compressions}
         total={totalBytes}
-        color={(name) => stableColor(name, compressionPalette)}
+        color={(owner) => stableColor(owner.name, compressionPalette)}
       />
     </div>
   );
