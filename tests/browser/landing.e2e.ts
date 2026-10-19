@@ -88,7 +88,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(shell).toHaveCSS("background-image", "none");
     await expect(shell).toHaveAttribute("data-theme", theme);
     await expect(page.locator(".landing-card")).toHaveCount(0);
-    await expect(page.locator(".brand-mark")).toHaveCSS(
+    await expect(page.locator(".brand-lockup > strong")).toHaveCSS(
       "color",
       theme === "light" ? "rgb(32, 32, 36)" : "rgb(237, 237, 240)",
     );

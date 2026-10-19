@@ -59,7 +59,10 @@ test("native named indexes expose persisted allocator occupancy, block ownership
   await expect(page.getByRole("tooltip")).toContainText(
     "not unallocated block tails",
   );
-  await page.mouse.move(0, 0);
+  // Radix keeps a tooltip open inside its pointer grace area until a move
+  // lands outside it, so leave in steps like a real pointer.
+  await page.mouse.move(0, 0, { steps: 4 });
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.getByLabel("Search indexes or tables").fill("no such index");
   await expect(page.locator(".index-comparison-row")).toHaveCount(0);
   await expect(page.locator(".index-view")).toContainText("No indexes match");

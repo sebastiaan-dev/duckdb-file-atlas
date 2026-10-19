@@ -145,31 +145,10 @@ summary:focus-visible {
   gap: 10px;
   white-space: nowrap;
 }
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: 0 2px 4px #20202805;
-  color: var(--ink);
-}
 .brand-lockup > strong {
   font-size: 15px;
   font-weight: 610;
   letter-spacing: -0.035em;
-}
-.brand-divider {
-  width: 1px;
-  height: 17px;
-  background: var(--line);
-  margin: 0 2px 0 6px;
-}
-.brand-subtitle {
-  color: var(--muted);
-  font-size: 12px;
 }
 .topbar-actions {
   display: flex;
@@ -192,27 +171,63 @@ summary:focus-visible {
   background: var(--chart-empty);
 }
 .open-file-button {
-  height: 36px !important;
-  padding: 0 15px !important;
-  color: #fff !important;
-  background: var(--accent) !important;
-  border: 1px solid #e65625 !important;
-  border-radius: 999px !important;
-  box-shadow:
-    inset 0 1px 1px #ffffff25,
-    0 2px 3px #d3491710 !important;
-  font-size: 12px !important;
-  font-weight: 550 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
 }
-.open-file-button:hover {
-  background: #dd4e1e !important;
+.open-file-button > svg {
+  color: var(--muted);
+}
+.open-file-button:hover:not(:disabled) {
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--muted), var(--line) 65%);
+}
+.open-file-button:disabled {
+  color: var(--muted);
+  cursor: progress;
+}
+/* The workspace header is a compact utility bar; the landing keeps its larger
+   hero header (see landing.css). */
+.app-shell:not(.is-landing) > .topbar {
+  height: 52px;
+  padding: 0 20px;
+}
+.app-shell:not(.is-landing) .brand-lockup {
+  gap: 8px;
+}
+.app-shell:not(.is-landing) .brand-lockup > strong {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.app-shell:not(.is-landing) .topbar-actions {
+  gap: 6px;
 }
 .app-layout {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
-  min-height: calc(100vh - 152px);
+}
+/* The workspace fills the viewport below the header, so the sidebar column
+   (and its border) always reaches the bottom of the page. */
+.app-shell:not(.is-landing) {
+  display: flex;
+  flex-direction: column;
+}
+.app-shell:not(.is-landing) > .app-layout {
+  flex: 1 0 auto;
 }
 .sidebar {
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--line);
 }
 .eyebrow {
@@ -314,9 +329,12 @@ summary:focus-visible {
   gap: 4px;
 }
 .checkpoint-title {
+  overflow: hidden;
   color: var(--ink);
   font-size: var(--text-sm);
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .checkpoint-subtitle {
   color: var(--subtle);
@@ -566,6 +584,7 @@ summary:focus-visible {
   height: 37px;
 }
 .view-tabs [role="tab"] {
+  white-space: nowrap;
   padding: 0 12px;
   height: 27px;
   gap: 6px;
@@ -585,6 +604,7 @@ summary:focus-visible {
   min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
 }
 .search-box {
@@ -673,41 +693,6 @@ summary:focus-visible {
   border-radius: 21px;
   box-shadow: var(--soft-shadow);
   overflow: hidden;
-}
-.map-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 19px 21px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.section-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-title-row svg {
-  color: var(--muted);
-}
-.section-title-row h2 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.025em;
-}
-.count-label {
-  margin-left: 3px;
-  color: var(--subtle);
-  font: var(--text-xs) var(--sans);
-  font-variant-numeric: tabular-nums;
-}
-.map-card-header p {
-  margin: 6px 0 0;
-  color: var(--subtle);
-  font-size: var(--text-sm);
-  line-height: 1.5;
 }
 .tile-size-control {
   /* A fill scrubber: the whole control is the range input. The thumb is a
@@ -825,12 +810,20 @@ summary:focus-visible {
 .map-body {
   padding: 18px 21px 17px;
 }
+/* File headers on the left, map display controls on the right. */
+.map-body-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
 .header-chips {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 14px;
 }
 .header-chips-label {
   margin-right: 4px;
@@ -1733,17 +1726,8 @@ summary:focus-visible {
     padding: 0 17px;
     height: 62px;
   }
-  .brand-divider,
-  .brand-subtitle {
-    display: none;
-  }
   .topbar-actions {
     gap: 8px;
-  }
-  .open-file-button {
-    padding: 0 11px !important;
-    font-size: var(--text-md) !important;
-    height: 33px !important;
   }
   .main-area {
     padding: 21px 15px;
@@ -1838,17 +1822,6 @@ summary:focus-visible {
   }
   .search-box {
     min-width: 160px;
-  }
-  .map-card-header {
-    padding: 17px 16px 15px;
-    gap: 8px;
-  }
-  .section-title-row h2 {
-    font-size: var(--text-lg);
-  }
-  .map-card-header p {
-    font-size: var(--text-xs);
-    max-width: 210px;
   }
   .map-body {
     padding: 16px 14px;
@@ -2161,9 +2134,15 @@ summary:focus-visible {
   .free-list-metrics small {
     grid-column: 1 / -1;
   }
+  /* Labels alone keep all four tabs on one line. */
   .view-tabs [role="tab"] {
-    padding-left: 9px;
-    padding-right: 9px;
+    padding-left: 6px;
+    padding-right: 6px;
+    white-space: nowrap;
+    font-size: var(--text-sm);
+  }
+  .view-tabs [role="tab"] > svg {
+    display: none;
   }
 }
 .free-run-detail-heading {
@@ -2975,7 +2954,7 @@ strong.index-selected-size {
   top: 0;
   display: flex;
   flex-direction: column;
-  max-height: 100vh;
+  max-height: calc(100vh - 51px); /* leaves room for .sidebar-footer */
   padding: 24px 16px 20px;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -3191,6 +3170,15 @@ strong.index-selected-size {
   gap: 12px;
   flex-wrap: wrap;
 }
+.logical-toolbar-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+.logical-matches {
+  font-size: var(--text-sm);
+}
 .logical-toggle {
   display: inline-flex;
   align-items: center;
@@ -3339,6 +3327,23 @@ strong.index-selected-size {
 .sidebar-toggle:hover {
   color: var(--ink);
   background: var(--panel);
+}
+/* Pinned to the bottom of the viewport while the sidebar column scrolls. */
+.sidebar-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  margin-top: auto;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--shell);
+}
+.sidebar.is-collapsed .sidebar-footer {
+  justify-content: center;
+  padding: 10px 0;
+}
+.sidebar-footer .sidebar-toggle {
+  margin: 0;
 }
 /* No width transition: animating the columns would re-lay out the block
    map on every frame. */

@@ -40,11 +40,9 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Database,
   Grid2X2,
   FileCode2,
   FileText,
-  HardDrive,
   Layers3,
   LoaderCircle,
   ListTree,
@@ -57,7 +55,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
-  Plus,
+  FolderOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,18 +110,6 @@ function plural(count: number, noun: string) {
 
 function formatOffset(value: number) {
   return `0x${Math.max(0, value).toString(16).padStart(8, "0")}`;
-}
-
-function HeaderIcon({ mode }: { mode: ViewMode }) {
-  return mode === "physical" ? (
-    <HardDrive size={15} />
-  ) : mode === "free-list" ? (
-    <ListTree size={15} />
-  ) : mode === "indexes" ? (
-    <ListTree size={15} />
-  ) : (
-    <Layers3 size={15} />
-  );
 }
 
 function InspectorEmptyState({ view }: { view: ViewMode }) {
@@ -793,6 +779,22 @@ function Workspace({
               variant={sidebarCollapsed ? "rail" : "full"}
               onExpand={() => setSidebarCollapsed(false)}
             />
+            <div className="sidebar-footer">
+              <button
+                type="button"
+                className="sidebar-toggle"
+                aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+                aria-expanded={!sidebarCollapsed}
+                title={`${sidebarCollapsed ? "Show" : "Hide"} sidebar ( [ )`}
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              >
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen size={16} />
+                ) : (
+                  <PanelLeftClose size={16} />
+                )}
+              </button>
+            </div>
           </aside>
         )}
         {narrow && drawerOpen && (
@@ -1037,111 +1039,91 @@ function Workspace({
           >
             <section className="map-column" aria-label="File map">
               <div className="map-card">
-                <div className="map-card-header">
-                  <div>
-                    <div className="section-title-row">
-                      <HeaderIcon mode={view} />
-                      <h2>
-                        {view === "physical"
-                          ? "Disk blocks"
-                          : view === "indexes"
-                            ? "Indexes"
-                            : view === "free-list"
-                              ? "Free list"
-                              : "Row groups & columns"}
-                      </h2>
-                      <span className="count-label">
-                        {formatNumber(
-                          view === "physical"
-                            ? dataBlocks.length
-                            : view === "indexes"
-                              ? (inspection.indexes?.length ?? 0)
-                              : view === "free-list"
-                                ? inspection.freeList?.complete
-                                  ? inspection.freeList.blockIds.length +
-                                    inspection.freeList.implicitBlockIds.length
-                                  : null
-                                : filteredSegments.length,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  {view === "physical" && (
-                    <label
-                      className="tile-size-control"
-                      style={
-                        {
-                          "--tile-fill": (cellSize - 4) / (24 - 4),
-                        } as React.CSSProperties
-                      }
-                    >
-                      <span>Tile size</span>
-                      <input
-                        type="range"
-                        aria-label="Block tile size"
-                        aria-valuetext={`${cellSize} pixel tiles`}
-                        min={4}
-                        max={24}
-                        step={1}
-                        value={cellSize}
-                        onChange={(event) =>
-                          setCellSize(Number(event.target.value))
-                        }
-                      />
-                      <output>{cellSize} px</output>
-                    </label>
-                  )}
-                </div>
+                {/* The tabs name the view visually; this keeps a heading per view. */}
+                <h2 className="sr-only">
+                  {view === "physical"
+                    ? "Disk blocks"
+                    : view === "indexes"
+                      ? "Indexes"
+                      : view === "free-list"
+                        ? "Free list"
+                        : "Row groups and columns"}
+                </h2>
                 {view === "physical" ? (
                   <div className="map-body">
-                    <div
-                      className="header-chips"
-                      role="group"
-                      aria-label="File headers"
-                    >
-                      <span className="header-chips-label">File headers</span>
-                      {headerBlocks.map((block) => {
-                        const pressed =
-                          selectedBlockId === block.id ||
-                          (selectedHeaderSlot === 1 && block.id === -2) ||
-                          (selectedHeaderSlot === 2 && block.id === -1);
-                        const name =
-                          block.id === -3
-                            ? "Main header"
-                            : `Checkpoint ${block.id === -2 ? 1 : 2}`;
-                        return (
-                          <DetailTip
-                            key={block.id}
-                            title={name}
-                            rows={[
-                              ["Size", formatBytes(block.size)],
-                              ["Offset", formatOffset(block.offset)],
-                            ]}
-                            hint={
-                              block.id === -3
-                                ? "Precedes block 0 · click to inspect"
-                                : "Click to inspect this checkpoint"
-                            }
-                          >
-                            <button
-                              type="button"
-                              className={`header-chip ${pressed ? "selected" : ""}`}
-                              onClick={() =>
+                    <div className="map-body-toolbar">
+                      <div
+                        className="header-chips"
+                        role="group"
+                        aria-label="File headers"
+                      >
+                        <span className="header-chips-label">File headers</span>
+                        {headerBlocks.map((block) => {
+                          const pressed =
+                            selectedBlockId === block.id ||
+                            (selectedHeaderSlot === 1 && block.id === -2) ||
+                            (selectedHeaderSlot === 2 && block.id === -1);
+                          const name =
+                            block.id === -3
+                              ? "Main header"
+                              : `Checkpoint ${block.id === -2 ? 1 : 2}`;
+                          return (
+                            <DetailTip
+                              key={block.id}
+                              title={name}
+                              rows={[
+                                ["Size", formatBytes(block.size)],
+                                ["Offset", formatOffset(block.offset)],
+                              ]}
+                              hint={
                                 block.id === -3
-                                  ? chooseBlock(block)
-                                  : selectCheckpoint(block.id === -2 ? 1 : 2)
+                                  ? "Precedes block 0 · click to inspect"
+                                  : "Click to inspect this checkpoint"
                               }
-                              onMouseEnter={() => setHoveredBlockId(block.id)}
-                              onMouseLeave={() => setHoveredBlockId(null)}
-                              aria-pressed={pressed}
-                              aria-label={`${block.label}, ${formatBytes(block.size)}`}
                             >
-                              <FileText size={12} aria-hidden="true" />
-                              {name}
-                            </button>
-                          </DetailTip>
-                        );
-                      })}
+                              <button
+                                type="button"
+                                className={`header-chip ${pressed ? "selected" : ""}`}
+                                onClick={() =>
+                                  block.id === -3
+                                    ? chooseBlock(block)
+                                    : selectCheckpoint(block.id === -2 ? 1 : 2)
+                                }
+                                onMouseEnter={() => setHoveredBlockId(block.id)}
+                                onMouseLeave={() => setHoveredBlockId(null)}
+                                aria-pressed={pressed}
+                                aria-label={`${block.label}, ${formatBytes(block.size)}`}
+                              >
+                                <FileText size={12} aria-hidden="true" />
+                                {name}
+                              </button>
+                            </DetailTip>
+                          );
+                        })}
+                      </div>
+                      <label
+                        className="tile-size-control"
+                        style={
+                          {
+                            "--tile-fill": (cellSize - 4) / (24 - 4),
+                          } as React.CSSProperties
+                        }
+                      >
+                        <span>Tile size</span>
+                        <input
+                          type="range"
+                          aria-label="Block tile size"
+                          aria-valuetext={`${cellSize} pixel tiles`}
+                          min={4}
+                          max={24}
+                          step={1}
+                          value={cellSize}
+                          onChange={(event) =>
+                            setCellSize(Number(event.target.value))
+                          }
+                        />
+                        <output>{cellSize} px</output>
+                      </label>
                     </div>
                     <PhysicalLegend
                       mode={colorMode}
@@ -1226,18 +1208,34 @@ function Workspace({
                         metrics={logicalMetrics}
                         column={valueColumn}
                       />
-                      {hasValidity && (
-                        <label className="logical-toggle">
-                          <input
-                            type="checkbox"
-                            checked={showValidity}
-                            onChange={(event) =>
-                              setShowValidity(event.target.checked)
-                            }
-                          />
-                          Validity columns
-                        </label>
-                      )}
+                      <div className="logical-toolbar-end">
+                        {query && (
+                          <span className="legend-matches logical-matches">
+                            {formatNumber(logicalSegments.length)} of{" "}
+                            {formatNumber(
+                              showValidity
+                                ? inspection.segments.length
+                                : inspection.segments.filter(
+                                    (segment) =>
+                                      segment.columnType !== "VALIDITY",
+                                  ).length,
+                            )}{" "}
+                            segments
+                          </span>
+                        )}
+                        {hasValidity && (
+                          <label className="logical-toggle">
+                            <input
+                              type="checkbox"
+                              checked={showValidity}
+                              onChange={(event) =>
+                                setShowValidity(event.target.checked)
+                              }
+                            />
+                            Validity columns
+                          </label>
+                        )}
+                      </div>
                     </div>
                     {filteredSegments.length === 0 ? (
                       <div className="empty-search">
@@ -1607,7 +1605,7 @@ export default function App() {
       />
       <header className="topbar">
         <div className="brand-lockup">
-          {inspection && (
+          {inspection && narrow && (
             <button
               ref={sidebarToggleRef}
               type="button"
@@ -1624,14 +1622,25 @@ export default function App() {
               )}
             </button>
           )}
-          <span className="brand-mark">
-            <Database size={20} strokeWidth={1.6} />
-          </span>
           <strong>File Atlas</strong>
-          <span className="brand-divider" />
-          <span className="brand-subtitle">DuckDB</span>
         </div>
         <div className="topbar-actions">
+          {inspection && (
+            <button
+              type="button"
+              className="open-file-button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loadingFile}
+              title="Open another .duckdb file (or drop one anywhere)"
+            >
+              {loadingFile ? (
+                <LoaderCircle className="spin" size={14} aria-hidden="true" />
+              ) : (
+                <FolderOpen size={14} aria-hidden="true" />
+              )}
+              {loadingFile ? "Reading…" : "Open file"}
+            </button>
+          )}
           <button
             className="theme-toggle"
             type="button"
@@ -1646,22 +1655,6 @@ export default function App() {
           >
             {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
           </button>
-          {inspection && (
-            <Button
-              className="open-file-button"
-              variant="primary"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loadingFile}
-            >
-              {loadingFile ? (
-                <LoaderCircle className="spin" size={15} />
-              ) : (
-                <Plus size={16} />
-              )}
-              {loadingFile ? "Reading file…" : "Open database"}
-            </Button>
-          )}
         </div>
       </header>
       {inspection ? (
