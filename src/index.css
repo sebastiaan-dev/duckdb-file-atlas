@@ -14,6 +14,18 @@
   --text-sm: 12px;
   --text-md: 13px;
   --text-lg: 14px;
+  /* Workspace rhythm: page padding, gap between stacked blocks and columns. */
+  --space-page: 24px;
+  --space-stack: 16px;
+  /* Inset of content inside a top-level card. */
+  --space-card: 20px;
+  /* Every toolbar control shares one height. */
+  --control-height: 32px;
+  /* Radius scale: marks, controls, cards nested in cards, top-level cards. */
+  --radius-sm: 4px;
+  --radius-control: 8px;
+  --radius-nested: 12px;
+  --radius-card: 16px;
   --ink: #202024;
   --muted: #77777f;
   --subtle: #96969f;
@@ -156,15 +168,15 @@ summary:focus-visible {
   gap: 13px;
 }
 .theme-toggle {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height);
+  height: var(--control-height);
   display: grid;
   place-items: center;
   padding: 0;
   color: var(--muted);
   background: transparent;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 .theme-toggle:hover {
   color: var(--ink);
@@ -174,12 +186,12 @@ summary:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: var(--control-height);
   padding: 0 11px;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   font-size: var(--text-sm);
   font-weight: 500;
   white-space: nowrap;
@@ -273,7 +285,7 @@ summary:focus-visible {
   gap: 8px;
   padding: 7px 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   text-align: left;
   background: transparent;
   color: var(--muted);
@@ -307,7 +319,7 @@ summary:focus-visible {
   padding: 9px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-nested);
   text-align: left;
 }
 .checkpoint-card:hover,
@@ -346,7 +358,7 @@ summary:focus-visible {
   background: #b67d3b0a;
   padding: 3px 5px;
   border: 1px solid #b67d3b12;
-  border-radius: 5px;
+  border-radius: 999px;
   font-size: var(--text-2xs);
 }
 .side-empty {
@@ -357,7 +369,7 @@ summary:focus-visible {
 }
 .main-area {
   min-width: 0;
-  padding: 29px 28px 28px;
+  padding: var(--space-page);
 }
 .workspace-heading {
   display: flex;
@@ -404,14 +416,14 @@ summary:focus-visible {
   background: var(--ink);
   color: var(--surface);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 .overview-card {
   overflow: hidden;
   padding: 20px 23px 17px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 21px;
+  border-radius: var(--radius-card);
   box-shadow: var(--soft-shadow);
 }
 .overview-metrics {
@@ -498,7 +510,7 @@ summary:focus-visible {
 .message-stack {
   display: grid;
   gap: 7px;
-  margin: 14px 0;
+  margin: var(--space-stack) 0 0;
 }
 .message {
   display: flex;
@@ -506,7 +518,7 @@ summary:focus-visible {
   gap: 8px;
   padding: 10px 13px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-nested);
   color: var(--muted);
   background: var(--surface);
   font-size: var(--text-md);
@@ -557,7 +569,7 @@ summary:focus-visible {
   padding: 9px 12px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   line-height: 1.6;
 }
 .inspection-notes p {
@@ -568,28 +580,30 @@ summary:focus-visible {
   top: 0;
   z-index: 20;
   background: var(--shell);
-  padding: 10px 0;
+  /* Half of each gap is padding, so the sticky bar keeps breathing room. */
+  padding: calc(var(--space-stack) / 2) 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin: 20px 0 15px;
+  margin: calc(var(--space-stack) / 2) 0;
 }
 .view-tabs {
   gap: 1px !important;
-  padding: 4px !important;
+  padding: 3px !important;
   background: color-mix(in srgb, var(--shell), var(--line) 28%) !important;
   border: 1px solid var(--line);
-  border-radius: 999px !important;
-  height: 37px;
+  border-radius: var(--radius-control) !important;
+  height: var(--control-height);
 }
 .view-tabs [role="tab"] {
   white-space: nowrap;
   padding: 0 12px;
-  height: 27px;
+  height: 24px;
   gap: 6px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  /* Inner radius = track radius − inset keeps the corners concentric. */
+  border-radius: calc(var(--radius-control) - 3px);
   color: var(--muted);
   font-size: var(--text-md);
   font-weight: 450;
@@ -609,7 +623,7 @@ summary:focus-visible {
 }
 .search-box {
   width: 250px;
-  height: 33px;
+  height: var(--control-height);
   display: flex;
   align-items: center;
   gap: 7px;
@@ -617,7 +631,7 @@ summary:focus-visible {
   color: var(--subtle);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 .search-box:focus-within {
   border-color: #aaa2de;
@@ -664,11 +678,12 @@ summary:focus-visible {
 .color-select-label select {
   max-width: 145px;
   appearance: none;
-  padding: 8px 25px 8px 9px;
+  height: var(--control-height);
+  padding: 0 25px 0 9px;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   font-size: var(--text-sm);
 }
 .color-select-label > svg {
@@ -679,7 +694,7 @@ summary:focus-visible {
 .content-grid.has-selection {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 16px;
+  gap: var(--space-stack);
   align-items: start;
 }
 .map-column {
@@ -690,7 +705,7 @@ summary:focus-visible {
   position: relative;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 21px;
+  border-radius: var(--radius-card);
   box-shadow: var(--soft-shadow);
   overflow: hidden;
 }
@@ -705,10 +720,10 @@ summary:focus-visible {
   justify-content: space-between;
   flex: 0 0 auto;
   width: 190px;
-  height: 32px;
+  height: var(--control-height);
   padding: 0 var(--thumb);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   box-shadow: var(--soft-shadow);
   color: var(--muted);
@@ -808,7 +823,7 @@ summary:focus-visible {
   }
 }
 .map-body {
-  padding: 18px 21px 17px;
+  padding: var(--space-card);
 }
 /* File headers on the left, map display controls on the right. */
 .map-body-toolbar {
@@ -968,16 +983,16 @@ summary:focus-visible {
 }
 .details-panel {
   position: sticky;
-  top: 70px;
-  background: var(--shell);
-  padding: 5px;
+  /* Below the sticky toolbar (control + its padding), plus half a gap. */
+  top: calc(var(--control-height) + var(--space-stack) * 1.5);
 }
 .details-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 14px 12px 16px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .details-header .eyebrow {
   color: var(--subtle);
@@ -998,7 +1013,7 @@ summary:focus-visible {
   color: var(--muted);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .details-close:disabled {
   opacity: 0.25;
@@ -1009,10 +1024,7 @@ summary:focus-visible {
 .detail-content {
   max-height: min(1000px, calc(100vh - 140px));
   overflow: auto;
-  padding: 14px 12px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  padding: 14px 16px 16px;
 }
 .selected-kind-row {
   display: flex;
@@ -1202,7 +1214,7 @@ summary:focus-visible {
   padding: 8px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   text-align: left;
 }
 .owner-row:hover {
@@ -1253,7 +1265,7 @@ summary:focus-visible {
   color: var(--muted);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   font-size: var(--text-xs);
 }
 .link-chip > span {
@@ -1272,7 +1284,7 @@ summary:focus-visible {
   width: 100%;
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   text-align: left;
   background: var(--panel);
   color: var(--muted);
@@ -1310,7 +1322,7 @@ summary:focus-visible {
   background: var(--panel);
   color: var(--muted);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   font-size: var(--text-xs);
   line-height: 1.6;
 }
@@ -1355,7 +1367,7 @@ summary:focus-visible {
   padding: 10px 8px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 .hex-row {
   display: flex;
@@ -1381,7 +1393,7 @@ summary:focus-visible {
   font-style: normal;
 }
 .logical-body {
-  padding: 17px;
+  padding: var(--space-card);
 }
 .logical-groups {
   display: grid;
@@ -1389,7 +1401,7 @@ summary:focus-visible {
 }
 .table-group {
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius-nested);
   overflow: hidden;
 }
 .table-group-heading {
@@ -1538,7 +1550,7 @@ summary:focus-visible {
   color: #9186bb;
   background: #9186bb0a;
   border: 1px solid #9186bb20;
-  border-radius: 17px;
+  border-radius: var(--radius-nested);
 }
 .empty-art span {
   display: none;
@@ -1597,11 +1609,10 @@ summary:focus-visible {
     padding-right: 11px;
   }
   .main-area {
-    padding: 25px 21px;
+    padding: 20px;
   }
   .content-grid.has-selection {
     grid-template-columns: minmax(0, 1fr) 290px;
-    gap: 13px;
   }
   .topbar {
     padding: 0 21px;
@@ -1635,7 +1646,7 @@ summary:focus-visible {
     display: block;
   }
   .main-area {
-    padding: 26px;
+    padding: 20px;
   }
   .content-grid.has-selection {
     grid-template-columns: minmax(0, 1fr) 290px;
@@ -1730,7 +1741,7 @@ summary:focus-visible {
     gap: 8px;
   }
   .main-area {
-    padding: 21px 15px;
+    padding: 16px;
   }
   .workspace-heading {
     align-items: flex-start;
@@ -1753,7 +1764,7 @@ summary:focus-visible {
     padding: 0 !important;
     font-size: 0;
     gap: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-control);
   }
   .heading-actions > .h-8 > svg {
     width: 15px;
@@ -1761,7 +1772,6 @@ summary:focus-visible {
   }
   .overview-card {
     padding: 16px 16px 14px;
-    border-radius: 18px;
   }
   .overview-metrics {
     grid-template-columns: 1.4fr 1fr;
@@ -1824,7 +1834,7 @@ summary:focus-visible {
     min-width: 160px;
   }
   .map-body {
-    padding: 16px 14px;
+    padding: 14px;
   }
   .header-chips {
     gap: 5px;
@@ -1842,7 +1852,7 @@ summary:focus-visible {
     width: 100%;
   }
   .logical-body {
-    padding: 12px;
+    padding: 14px;
   }
   .logical-table {
     --logical-axis-width: 88px;
@@ -1886,7 +1896,7 @@ summary:focus-visible {
   background: var(--panel);
   color: var(--muted);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   font-size: var(--text-sm);
 }
 .raw-header-link svg:last-child {
@@ -1981,7 +1991,7 @@ summary:focus-visible {
 .free-list-body {
   --run-serialized: #796de0;
   --run-implicit: #b2a7ed;
-  padding: 22px;
+  padding: var(--space-card);
 }
 [data-theme="dark"] .free-list-body {
   --run-serialized: #a599ef;
@@ -2417,7 +2427,7 @@ summary:focus-visible {
   max-width: calc(100vw - 32px);
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--ink);
   box-shadow: 0 8px 30px rgb(25 25 40 / 13%);
@@ -2507,7 +2517,7 @@ summary:focus-visible {
   --index-mask: #8d93a3;
 }
 .index-view {
-  padding: 22px;
+  padding: var(--space-card);
 }
 [data-theme="dark"],
 [data-theme="dark"] .index-view {
@@ -2586,7 +2596,7 @@ summary:focus-visible {
 .index-comparison,
 .index-selection {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-nested);
   margin-top: 22px;
   padding: 18px;
   background: var(--surface);
@@ -2685,7 +2695,7 @@ strong.index-selected-size {
   text-align: left;
   padding: 10px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   background: transparent;
 }
@@ -2757,7 +2767,7 @@ strong.index-selected-size {
 .index-toggle {
   display: flex;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 2px;
 }
 .index-toggle button {
@@ -2955,7 +2965,7 @@ strong.index-selected-size {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 51px); /* leaves room for .sidebar-footer */
-  padding: 24px 16px 20px;
+  padding: var(--space-page) 16px 20px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -3312,8 +3322,8 @@ strong.index-selected-size {
 /* ---------------------------------------------------------------------- */
 /* Collapsible sidebar: full list, icon rail, or slide-in drawer.          */
 .sidebar-toggle {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height);
+  height: var(--control-height);
   display: grid;
   place-items: center;
   margin-right: 2px;
@@ -3321,7 +3331,7 @@ strong.index-selected-size {
   color: var(--muted);
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .sidebar-toggle:hover {
@@ -3370,7 +3380,7 @@ strong.index-selected-size {
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .rail-button:hover {
@@ -3465,7 +3475,7 @@ strong.index-selected-size {
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   transition: transform 140ms ease;
 }
@@ -3485,18 +3495,18 @@ strong.index-selected-size {
   padding-top: 0;
 }
 .database-summary.is-expanded {
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 .database-summary.is-collapsed {
   display: flex;
   align-items: center;
   gap: 14px;
   min-height: 44px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   padding: 6px 12px 6px 8px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   box-shadow: var(--soft-shadow);
 }
 .database-summary.is-collapsed h1 {
