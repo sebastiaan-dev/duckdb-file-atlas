@@ -188,8 +188,9 @@ export const PhysicalLegend = memo(function PhysicalLegend({
         <InfoTip label="About the block map">
           <p>{EXPLANATIONS[mode]}</p>
           <p>
-            Hover a tile for details; click to inspect its bytes. Arrow keys
-            move between blocks.
+            Hover a tile for details; click to inspect its bytes. Drag or
+            Shift-click to aggregate a range of blocks. Arrow keys move between
+            blocks.
           </p>
         </InfoTip>
       </span>

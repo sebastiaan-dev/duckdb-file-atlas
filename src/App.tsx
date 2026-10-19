@@ -6,6 +6,8 @@ import { StorageCompatibilityWarning } from "@/components/storage-compatibility-
 import { checkpointStatus, commonSchemaPrefix } from "@/lib/checkpoint-status";
 import { useMediaQuery, usePersistentFlag } from "@/hooks/use-persistent-state";
 import { DenseByteStrip } from "@/components/dense-byte-strip";
+import { BlockRangeDetails } from "@/components/block-range-details";
+import { blocksBetween, summarizeBlockRange } from "@/lib/block-range";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
 import {
@@ -134,7 +136,7 @@ function InspectorEmptyState({ view }: { view: ViewMode }) {
             ? "Select an index buffer to inspect the block that stores it."
             : view === "free-list"
               ? "Select a free block or allocator block to inspect it."
-              : "Select a block to see its owners, byte layout and raw bytes."}
+              : "Select a block to see its owners, byte layout and raw bytes. Drag across blocks to aggregate them."}
       </p>
       <dl>
         <div>
@@ -152,6 +154,15 @@ function InspectorEmptyState({ view }: { view: ViewMode }) {
           </dt>
           <dd>Inspect</dd>
         </div>
+        {view === "physical" && (
+          <div>
+            <dt>
+              <kbd>⇧</kbd>
+              <kbd>Drag</kbd>
+            </dt>
+            <dd>Select a range</dd>
+          </div>
+        )}
         <div>
           <dt>
             <kbd>Esc</kbd>
@@ -244,6 +255,11 @@ function Workspace({
     null,
   );
   const [hoveredBlockId, setHoveredBlockId] = useState<number | null>(null);
+  // Multi-block selection on the physical map, as two block IDs in file order.
+  const [blockRange, setBlockRange] = useState<{
+    anchor: number;
+    focus: number;
+  } | null>(null);
   const [pendingTableScroll, setPendingTableScroll] = useState<string | null>(
     null,
   );
@@ -463,6 +479,7 @@ function Workspace({
   );
 
   const clearSelection = useCallback(() => {
+    setBlockRange(null);
     setSelectedBlockId(null);
     setSelectedSegmentId(null);
     setSelectedHeaderSlot(null);
@@ -522,11 +539,65 @@ function Workspace({
   }, []);
 
   const chooseBlock = useCallback((block: FileBlock) => {
+    setBlockRange(null);
     setSelectedBlockId(block.id);
     setView("physical");
     setSelectedSegmentId(null);
     setSelectedHeaderSlot(null);
   }, []);
+
+  // Any single selection (block, segment, checkpoint) supersedes a range.
+  const rangeBlocks = useMemo(() => {
+    if (
+      !blockRange ||
+      selectedBlockId != null ||
+      selectedSegmentId != null ||
+      selectedHeaderSlot != null
+    )
+      return null;
+    const blocks = blocksBetween(
+      dataBlocks,
+      blockRange.anchor,
+      blockRange.focus,
+    );
+    return blocks.length > 1 ? blocks : null;
+  }, [
+    blockRange,
+    dataBlocks,
+    selectedBlockId,
+    selectedSegmentId,
+    selectedHeaderSlot,
+  ]);
+  const rangeBlockIds = useMemo(
+    () => (rangeBlocks ? new Set(rangeBlocks.map((block) => block.id)) : null),
+    [rangeBlocks],
+  );
+  const rangeSummary = useMemo(
+    () =>
+      rangeBlocks
+        ? summarizeBlockRange(rangeBlocks, segmentsById, inspection.indexes)
+        : null,
+    [rangeBlocks, segmentsById, inspection.indexes],
+  );
+  const selectBlockRange = useCallback(
+    (anchorId: number, focusId: number) => {
+      const focus = blocksById.get(focusId);
+      if (!focus) return;
+      // A range needs two distinct data blocks; otherwise select the target.
+      if (
+        anchorId === focusId ||
+        blocksBetween(dataBlocks, anchorId, focusId).length < 2
+      ) {
+        chooseBlock(focus);
+        return;
+      }
+      setBlockRange({ anchor: anchorId, focus: focusId });
+      setSelectedBlockId(null);
+      setSelectedSegmentId(null);
+      setSelectedHeaderSlot(null);
+    },
+    [blocksById, dataBlocks, chooseBlock],
+  );
 
   const loadBlockBytes = useCallback(
     async (block: FileBlock, requestedOffset = block.offset) => {
@@ -1095,6 +1166,9 @@ function Workspace({
                       hoveredBlockId={effectiveHoverBlock}
                       matchingBlockIds={query ? matchingBlockIds : null}
                       onSelect={chooseBlock}
+                      rangeBlockIds={rangeBlockIds}
+                      rangeAnchorId={rangeBlocks ? blockRange!.anchor : null}
+                      onSelectRange={selectBlockRange}
                       cellSize={cellSize}
                       linkedBlockIds={linkedBlockIds}
                     />
@@ -1253,7 +1327,7 @@ function Workspace({
             </section>
             {
               <aside
-                className={`details-panel${selectedBlock || selectedSegment || selectedHeader ? "" : " is-empty"}`}
+                className={`details-panel${selectedBlock || selectedSegment || selectedHeader || rangeSummary ? "" : " is-empty"}`}
                 aria-label="Selection details"
               >
                 <div className="details-header">
@@ -1261,13 +1335,15 @@ function Workspace({
                     <h2>
                       {selectedHeader
                         ? `Checkpoint ${selectedHeader.slot}`
-                        : selectedSegment
-                          ? selectedSegment.column
-                          : selectedBlock
-                            ? selectedBlock.role === "header"
-                              ? selectedBlock.label
-                              : `Block ${selectedBlock.id}`
-                            : "Inspector"}
+                        : rangeSummary
+                          ? `Blocks ${rangeSummary.firstId}–${rangeSummary.lastId}`
+                          : selectedSegment
+                            ? selectedSegment.column
+                            : selectedBlock
+                              ? selectedBlock.role === "header"
+                                ? selectedBlock.label
+                                : `Block ${selectedBlock.id}`
+                              : "Inspector"}
                     </h2>
                     {selectedSegment && !selectedHeader && (
                       <p className="details-subtitle">
@@ -1276,7 +1352,10 @@ function Workspace({
                       </p>
                     )}
                   </div>
-                  {(selectedBlock || selectedSegment || selectedHeader) && (
+                  {(selectedBlock ||
+                    selectedSegment ||
+                    selectedHeader ||
+                    rangeSummary) && (
                     <button
                       type="button"
                       className="details-close"
@@ -1370,6 +1449,8 @@ function Workspace({
                       void loadBlockBytes(selectedBlock, offset)
                     }
                   />
+                ) : rangeSummary ? (
+                  <BlockRangeDetails summary={rangeSummary} />
                 ) : (
                   <InspectorEmptyState view={view} />
                 )}

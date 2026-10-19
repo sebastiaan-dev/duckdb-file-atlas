@@ -1,0 +1,103 @@
+.range-coverage {
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+/* One proportional bar; flex shares keep tiny parts inside the track. */
+.range-composition {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--chart-empty);
+}
+.range-composition > span {
+  flex: 0 1 0;
+  min-width: 2px;
+}
+.range-composition-unknown,
+.range-key i.range-composition-unknown {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    rgb(255 255 255 / 48%) 3px 5px
+  ) !important;
+  background-color: var(--chart-unknown) !important;
+}
+.range-key,
+.range-owner-list {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.range-key li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.range-key i,
+.range-owner-list i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.range-key i.is-free {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.range-key span,
+.range-owner-list span:not(.range-owner-bar) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.range-key small {
+  color: var(--subtle);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.range-key strong,
+.range-owner-list strong {
+  min-width: 5ch;
+  color: var(--ink);
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.range-owner-list li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 5px 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.range-owner-bar {
+  grid-column: 2 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--chart-empty);
+}
+.range-owner-bar b {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+}
+.range-owner-more {
+  margin-top: 4px;
+  padding: 4px 0;
+  color: var(--chart-primary);
+  background: none;
+  border: 0;
+  font-size: var(--text-xs);
+}
+.range-owner-more:hover {
+  text-decoration: underline;
+}

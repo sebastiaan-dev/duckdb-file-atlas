@@ -11,6 +11,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type PointerEvent,
 } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { blockCellColors, blockOwners } from "@/lib/palette";
@@ -25,9 +26,24 @@ export interface BlockHeatmapProps {
   hoveredBlockId: number | null;
   matchingBlockIds: Set<number> | null;
   onSelect: (block: FileBlock) => void;
+  /** Blocks in the current multi-block selection, if any. */
+  rangeBlockIds?: Set<number> | null;
+  /** Fixed end of a range; Shift+click and Shift+arrows extend from it. */
+  rangeAnchorId?: number | null;
+  /** Select every block between two IDs in file order (inclusive). */
+  onSelectRange?: (anchorId: number, focusId: number) => void;
   cellSize: number;
   linkedBlockIds?: Set<number>;
 }
+
+interface DragState {
+  pointerId: number;
+  anchorId: number;
+  focusId: number;
+  moved: boolean;
+}
+/** Distance from the viewport edge that scrolls the page while dragging. */
+const DRAG_SCROLL_EDGE = 48;
 
 const bytes = (value: number) =>
   value < 1024
@@ -142,6 +158,7 @@ const HeatmapCell = memo(function HeatmapCell({
   model,
   column,
   selected,
+  inRange,
   active,
   linked,
   dimmed,
@@ -153,6 +170,7 @@ const HeatmapCell = memo(function HeatmapCell({
   tooltipId: string;
   column: number;
   selected: boolean;
+  inRange: boolean;
   active: boolean;
   linked: boolean;
   dimmed: boolean;
@@ -166,11 +184,11 @@ const HeatmapCell = memo(function HeatmapCell({
       type="button"
       role="gridcell"
       data-block-id={block.id}
-      className={`heatmap-cell${selected ? " is-selected" : ""}${active ? " is-hovered" : ""}${linked ? " is-linked" : ""}${dimmed ? " is-dimmed" : ""}${model.unknown ? " is-unknown" : ""}${block.role === "free" ? " is-free" : ""}`}
+      className={`heatmap-cell${selected ? " is-selected" : ""}${inRange ? " is-in-range" : ""}${active ? " is-hovered" : ""}${linked ? " is-linked" : ""}${dimmed ? " is-dimmed" : ""}${model.unknown ? " is-unknown" : ""}${block.role === "free" ? " is-free" : ""}`}
       style={{ "--cell-fill": model.fill } as CSSProperties}
       tabIndex={tabbable ? 0 : -1}
       aria-colindex={column + 1}
-      aria-selected={selected}
+      aria-selected={selected || inRange}
       aria-describedby={active ? tooltipId : undefined}
       aria-label={`${model.label}${linked ? ", linked from active block" : ""}`}
     >
@@ -188,10 +206,16 @@ export const BlockHeatmap = memo(function BlockHeatmap({
   hoveredBlockId,
   matchingBlockIds,
   onSelect,
+  rangeBlockIds = null,
+  rangeAnchorId = null,
+  onSelectRange,
   cellSize,
   linkedBlockIds,
 }: BlockHeatmapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<DragState | null>(null);
+  // A completed drag ends with a click on its last cell; it must not reselect.
+  const suppressClick = useRef(false);
   const cellRefs = useRef(new Map<number, HTMLButtonElement>());
   const pendingGridFocus = useRef<number | null>(null);
   const [width, setWidth] = useState(800);
@@ -360,6 +384,24 @@ export const BlockHeatmap = memo(function BlockHeatmap({
     event.preventDefault();
     next = Math.max(0, Math.min(ordered.length - 1, next));
     cellRefs.current.get(ordered[next].id)?.focus();
+    if (event.shiftKey && onSelectRange)
+      onSelectRange(rangeAnchorId ?? ordered[index].id, ordered[next].id);
+  }
+  function cellAt(x: number, y: number) {
+    const cell = targetCell(document.elementFromPoint(x, y));
+    return cell && hostRef.current?.contains(cell) ? cell : null;
+  }
+  function endDrag(event: PointerEvent<HTMLDivElement>) {
+    const state = drag.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (state.moved) {
+      suppressClick.current = true;
+      // Clear the guard if the browser does not dispatch a click afterwards.
+      setTimeout(() => (suppressClick.current = false));
+    }
   }
   useEffect(() => {
     if (selectedBlockId != null)
@@ -389,11 +431,55 @@ export const BlockHeatmap = memo(function BlockHeatmap({
               "--heatmap-link-ring": `${Math.min(2, layout.cellSize / 8)}px`,
             } as CSSProperties
           }
+          onPointerDown={(event) => {
+            // Touch keeps native scrolling; ranges use mouse/pen or keyboard.
+            if (
+              !onSelectRange ||
+              event.button !== 0 ||
+              event.shiftKey ||
+              event.pointerType === "touch"
+            )
+              return;
+            const cell = targetCell(event.target);
+            if (!cell) return;
+            const id = Number(cell.dataset.blockId);
+            drag.current = {
+              pointerId: event.pointerId,
+              anchorId: id,
+              focusId: id,
+              moved: false,
+            };
+          }}
           onPointerMove={(event) => {
+            const state = drag.current;
+            if (state && state.pointerId === event.pointerId) {
+              const cell = cellAt(event.clientX, event.clientY);
+              const id = cell ? Number(cell.dataset.blockId) : state.focusId;
+              if (!state.moved && id !== state.anchorId) {
+                state.moved = true;
+                // Keep receiving moves when the pointer leaves the map.
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setHover(null);
+              }
+              if (state.moved) {
+                if (event.clientY > window.innerHeight - DRAG_SCROLL_EDGE)
+                  window.scrollBy(0, 16);
+                else if (event.clientY < DRAG_SCROLL_EDGE)
+                  window.scrollBy(0, -16);
+                if (id !== state.focusId) {
+                  state.focusId = id;
+                  onSelectRange?.(state.anchorId, id);
+                }
+                return;
+              }
+            }
             const cell = targetCell(event.target);
             if (cell) showCell(cell);
             else setHover(null);
           }}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
           onPointerLeave={() => setHover(null)}
           onFocus={(event) => {
             const cell = targetCell(event.target);
@@ -407,19 +493,27 @@ export const BlockHeatmap = memo(function BlockHeatmap({
               setHover(null);
           }}
           onClick={(event) => {
-            const cell = targetCell(event.target);
-            if (cell) {
-              const block =
-                ordered[indices.get(Number(cell.dataset.blockId)) ?? -1];
-              if (block) onSelect(block);
+            if (suppressClick.current) {
+              suppressClick.current = false;
+              return;
             }
+            const cell = targetCell(event.target);
+            if (!cell) return;
+            const block =
+              ordered[indices.get(Number(cell.dataset.blockId)) ?? -1];
+            if (!block) return;
+            const anchor = rangeAnchorId ?? selectedBlockId;
+            if (event.shiftKey && onSelectRange && anchor != null)
+              onSelectRange(anchor, block.id);
+            else onSelect(block);
           }}
           onKeyDown={navigate}
         >
           <p id={helpId} className="heatmap-sr-only">
             Blocks in ascending file offset order. Use arrow keys to move, Enter
-            or Space to inspect. Row labels periodically show the first block ID
-            in a row.
+            or Space to inspect. Hold Shift with the arrow keys, Shift+click or
+            drag to select a range of blocks. Row labels periodically show the
+            first block ID in a row.
           </p>
           {ordered.length ? (
             <>
@@ -441,6 +535,7 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                 role="grid"
                 aria-label="Database block map"
                 aria-describedby={helpId}
+                aria-multiselectable={onSelectRange ? true : undefined}
                 aria-rowcount={rows.length}
                 aria-colcount={columns}
               >
@@ -465,6 +560,7 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                           column={col}
                           register={register}
                           selected={selectedBlockId === model.block.id}
+                          inRange={rangeBlockIds?.has(model.block.id) ?? false}
                           active={hover?.id === model.block.id}
                           linked={linkedIds.has(model.block.id)}
                           dimmed={

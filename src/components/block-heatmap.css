@@ -249,3 +249,19 @@
   position: absolute;
   pointer-events: none;
 }
+
+/* Multi-block selection: adjacent outlines merge into one band. */
+.block-heatmap {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.heatmap-cell.is-in-range {
+  z-index: 1;
+  opacity: 1;
+  outline: var(--heatmap-ring) solid var(--chart-primary, #554de0);
+  outline-offset: 0;
+  box-shadow: inset 0 0 0 var(--heatmap-ring) var(--surface, #fff);
+}
+.heatmap-cell.is-in-range .heatmap-cell-marker {
+  display: block;
+}
