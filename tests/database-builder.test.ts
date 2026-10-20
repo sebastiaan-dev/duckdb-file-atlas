@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  generateTpchDatabase,
-  tpchGenerationError,
-} from "../src/lib/tpch-generator";
+  buildError,
+  buildScenario,
+  DEFAULT_SCENARIO_STATE,
+} from "../src/lib/scenarios";
 import {
   buildDatabase,
   duckdbRuntimeURL,
   StatementError,
 } from "../src/lib/database-builder";
 import runtime from "../vendor/duckdb-wasm/runtime.json";
-import type { TpchScaleFactor } from "../src/lib/tpch-generator";
 
 let calls: string[];
 let query: (sql: string) => Promise<void>;
@@ -146,22 +146,31 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis.navigator, "storage");
 });
 
-describe("TPC-H generator", () => {
-  test("rejects unsupported factors before creating a worker", async () => {
-    for (const value of [0, 10, -0.1, NaN, "0.01); DROP TABLE x;--"]) {
-      await expect(
-        generateTpchDatabase({ scaleFactor: value as TpchScaleFactor }),
-      ).rejects.toThrow("0.01, 0.1 or 1");
-    }
-    expect(worker).toBeUndefined();
+/** Build the TPC-H scenario at a scale factor. */
+const tpch = (
+  sf: string,
+  options: { signal?: AbortSignal; onProgress?: (m: string) => void } = {},
+) =>
+  buildScenario(
+    {
+      ...DEFAULT_SCENARIO_STATE,
+      id: "tpch",
+      settings: { ...DEFAULT_SCENARIO_STATE.settings, tpch: { sf } },
+    },
+    options,
+  );
+
+describe("TPC-H scenario", () => {
+  test("unknown settings fall back to defaults and never reach SQL", async () => {
+    await tpch("0.01); DROP TABLE x;--");
+    expect(calls).toContain("CALL dbgen(sf = 1)");
+    expect(calls.some((sql) => sql.includes("DROP"))).toBe(false);
   });
 
   test("already-aborted requests never start a worker", async () => {
     const controller = new AbortController();
     controller.abort();
-    await expect(
-      generateTpchDatabase({ signal: controller.signal }),
-    ).rejects.toThrow();
+    await expect(tpch("1", { signal: controller.signal })).rejects.toThrow();
     expect(worker).toBeUndefined();
   });
 
@@ -173,7 +182,7 @@ describe("TPC-H generator", () => {
     ).getDirectoryHandle("fs");
     stale.children.set("atlas-tpch-old.duckdb", new FakeFile(bytes));
     stale.children.set("someone-else.duckdb", new FakeFile(bytes));
-    const file = await generateTpchDatabase({
+    const file = await tpch("1", {
       onProgress: (message) => progress.push(message),
     });
     expect(file.name).toBe("tpch-sf1.duckdb");
@@ -187,13 +196,12 @@ describe("TPC-H generator", () => {
     expect(calls).toEqual([
       "SET memory_limit = '512MB'",
       `SET custom_extension_repository = '${duckdbRuntimeURL("extensions")}'`,
-      "INSTALL tpch",
-      "LOAD tpch",
       expect.stringMatching(
-        /^ATTACH 'opfs:\/\/atlas-build-[0-9a-f-]{36}\.duckdb' AS generated \(STORAGE_VERSION 'v2\.0\.0'\)$/,
+        /^ATTACH 'opfs:\/\/atlas-build-[0-9a-f-]{36}\.duckdb' AS generated \(STORAGE_VERSION 'v2\.0\.0', BLOCK_SIZE 262144\)$/,
       ),
       "USE generated",
-      "CALL dbgen(sf = 1, catalog = 'generated')",
+      // dbgen autoloads the TPC-H extension from this site.
+      "CALL dbgen(sf = 1)",
       "CHECKPOINT generated",
       "USE memory",
       "DETACH generated",
@@ -202,8 +210,13 @@ describe("TPC-H generator", () => {
     ]);
     // The OPFS copy, its WAL and this run's scratch directory are removed.
     expect(opfsFiles()).toEqual(["duckdb/fs/someone-else.duckdb"]);
-    expect(progress).toHaveLength(5);
-    // Runtime, worker and extension all come from this site's vendored copy.
+    expect(progress).toEqual([
+      "Downloading DuckDB runtime…",
+      "Running statement 1 of 1…",
+      "Checkpointing the database file…",
+      "Preparing the .duckdb file…",
+    ]);
+    // Runtime, worker and extensions all come from this site's vendored copy.
     expect(bundleURLs).toEqual([
       duckdbRuntimeURL("duckdb-base.wasm"),
       duckdbRuntimeURL("duckdb-browser-base.worker.js"),
@@ -213,20 +226,20 @@ describe("TPC-H generator", () => {
     expect(worker?.terminated).toBe(true);
   });
 
-  test("supports the bounded larger factor", async () => {
-    expect((await generateTpchDatabase({ scaleFactor: 0.1 })).name).toBe(
-      "tpch-sf0.1.duckdb",
-    );
-    expect(calls).toContain("CALL dbgen(sf = 0.1, catalog = 'generated')");
+  test("supports smaller factors", async () => {
+    expect((await tpch("0.1")).name).toBe("tpch-sf0.1.duckdb");
+    expect(calls).toContain("CALL dbgen(sf = 0.1)");
   });
 
-  test("cleans up on extension failures", async () => {
+  test("cleans up when the extension cannot load", async () => {
     query = async (sql) => {
-      if (sql === "INSTALL tpch") throw new Error("offline");
+      if (sql.startsWith("CALL dbgen"))
+        throw new Error("IO Error: Extension tpch could not be installed");
     };
-    await expect(generateTpchDatabase()).rejects.toThrow("offline");
+    await expect(tpch("1")).rejects.toBeInstanceOf(StatementError);
     expect(worker?.terminated).toBe(true);
-    expect(calls.some((sql) => sql.startsWith("CALL dbgen"))).toBe(false);
+    expect(calls).not.toContain("CHECKPOINT generated");
+    expect(opfsFiles()).toEqual([]);
   });
 
   test("cancellation rejects even when a worker query never returns", async () => {
@@ -239,7 +252,7 @@ describe("TPC-H generator", () => {
       return Promise.resolve();
     };
     await expect(
-      generateTpchDatabase({ signal: controller.signal }),
+      tpch("1", { signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(worker?.terminated).toBe(true);
     expect(calls).not.toContain("CHECKPOINT generated");
@@ -252,24 +265,20 @@ describe("TPC-H generator", () => {
       queueMicrotask(() => worker!.dispatchEvent(new Event("error")));
       return new Promise(() => {});
     };
-    await expect(generateTpchDatabase()).rejects.toThrow(
-      "worker failed to start",
-    );
+    await expect(tpch("1")).rejects.toThrow("worker failed to start");
     expect(worker?.terminated).toBe(true);
   });
 
   test("does not offer malformed exports", async () => {
     bytes = new Uint8Array(128);
-    await expect(generateTpchDatabase()).rejects.toThrow(
-      "complete database file",
-    );
+    await expect(tpch("1")).rejects.toThrow("complete database file");
     expect(worker?.terminated).toBe(true);
   });
 
   test("error guidance includes connection and memory recovery", () => {
-    const message = tpchGenerationError(new Error("network failure"));
+    const message = buildError(new Error("network failure"));
     expect(message).toContain("DuckDB runtime");
-    expect(message).toContain("SF 0.01");
+    expect(message).toContain("smaller scenario");
     expect(message).toContain("network failure");
   });
 });

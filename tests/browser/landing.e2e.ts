@@ -109,16 +109,15 @@ test("landing cards fit a phone without horizontal overflow", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.locator(".landing-dropzone")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Generate TPC-H", exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: /^Scenarios/ }).click();
+  await expect(page.getByRole("radio", { name: "Custom" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
   const upload = (await page.locator(".landing-dropzone").boundingBox())!;
-  const generator = (await page.locator(".tpch-generator").boundingBox())!;
+  const generator = (await page.locator(".scenarios-card").boundingBox())!;
   expect(upload.x).toBeGreaterThanOrEqual(0);
   expect(generator.x + generator.width).toBeLessThanOrEqual(390);
   expect(generator.x).toBe(upload.x);

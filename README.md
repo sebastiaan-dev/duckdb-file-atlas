@@ -37,48 +37,54 @@ bun run dev
 
 The dev server prints a local URL. Open it, then drop a `.duckdb` file on the start screen or click to choose one. Nothing is shown until a real file is opened; the file never leaves the browser.
 
-## Generate TPC-H in the browser
+## Scenarios: generate a database in the browser
 
-On the start screen, choose **Generate TPC-H**. SF 1 is the default; SF 0.1 and
-SF 0.01 generate smaller files. The generator writes **v2.0 storage**, so exact
-segment sizes and internal free space are measurable. It runs DuckDB in an
-isolated worker, checkpoints and detaches the database, then offers
-**Download .duckdb** and **Open generated sample**. No database contents are
-sent to a server. Cancellation terminates the worker; the worker, its files
-and its scratch space are released on completion, failure or cancellation.
+Below the drop zone, **Scenarios** expands (and shrinks the drop zone to a
+slim bar; files can still be dropped anywhere). Pick a tile, adjust its
+settings, and generate:
+
+| Scenario    | Settings                                              | Shows                                                                   |
+| ----------- | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| TPC-H       | scale factor 0.01 / 0.1 / 1                           | eight benchmark tables                                                  |
+| TPC-DS      | scale factor 0.01 / 0.1                               | 24 benchmark tables                                                     |
+| Compression | rows                                                  | one column per codec: bit-packing, constant, RLE, dictionary, ALP, FSST |
+| Churn       | rows, % deleted, % updated, checkpoints, refill table | delete vectors, freed blocks and their reuse                            |
+| Indexes     | rows, unique id / string / both, delete afterwards    | ART index buffers in their own blocks                                   |
+| Overflow    | rows, string length, ZSTD on/off                      | string overflow blocks (or ZSTD instead)                                |
+| Custom      | your SQL                                              | anything                                                                |
+
+Every tile compiles to SQL (**Edit SQL** continues in
+Custom). Storage format (v1.0.0–v2.0.0) and block size (16–256 KiB), in the
+settings menu next to **Copy link**, apply to all of them. The script runs statement by statement in a fresh database whose
+default catalog is the new file, so unqualified `CREATE TABLE` statements land
+in it; the file is then checkpointed and opened. A failing statement is
+reported with its number and line, and nothing is opened. Generated files can
+be downloaded from the workspace header; **Scenarios** there opens the same
+builder to replace the open database. Cancellation terminates the worker; the
+worker, its files and its scratch space are released on completion, failure
+or cancellation.
+
+The address bar then describes the database (`#scenario=churn&rows=…`, or
+compressed SQL for Custom, in the URL fragment, which is never sent to a
+server), and **Copy link** copies it. A shared link opens the same scenario
+and settings, but never runs by itself; every value is checked against the
+scenario's options before it can reach SQL.
 
 No published DuckDB-WASM release can write v2.0 storage yet, so the app vendors
 a DuckDB 2.0 build of DuckDB-WASM (see `vendor/duckdb-wasm/README.md`). The JS
 API lives in `vendor/duckdb-wasm`; the 35 MB WASM module, its worker and the
-matching TPC-H extension are assets of a GitHub release of this repository.
-`bun run dev` and `bun run build` install them into `public/duckdb-runtime/`
-(checksum-verified, git-ignored), so the deployed site serves the runtime
-itself: no CDN, extension repository or Blob worker is involved. The database
-is written to the browser's origin private file system (OPFS) while it is
-generated and removed once it has been read back. Opening your own file never
-loads DuckDB-WASM.
+matching extensions (TPC-H, TPC-DS, ICU, JSON, Parquet, autoloaded on use) are
+assets of a GitHub release of this repository. `bun run dev` and
+`bun run build` install them into `public/duckdb-runtime/` (checksum-verified,
+git-ignored), so the deployed site serves the runtime itself: no CDN,
+extension repository or Blob worker is involved. The database is written to
+the browser's origin private file system (OPFS) while it is generated and
+removed once it has been read back. Opening your own file never loads
+DuckDB-WASM.
 
 To move to a newer DuckDB-WASM build, pick a successful run of the
 loadable-extension CI build in `duckdb/duckdb-wasm`, then run
 `bun run vendor:duckdb-wasm <run id> --publish`.
-
-## Build a database from SQL
-
-The same card has a **Your SQL** tab: write a script (or start from a preset
-such as compression codecs, deletes, updates and free blocks, appends and row
-groups, ART indexes, long strings with overflow blocks, or TPC-DS) and choose
-the storage format (v1.0.0–v2.0.0) and block size (16–256 KiB). **Run SQL**
-executes it statement by statement in a fresh database whose default catalog
-is the new file, so unqualified `CREATE TABLE` statements land in it. When the
-script ends the file is checkpointed and opened. A failing statement is
-reported with its number and line, and nothing is opened.
-
-The address bar then holds the script and options (compressed in the URL
-fragment, which is never sent to a server), and **Copy link** copies it: a
-shared link opens the SQL tab with the same script, but never runs it by
-itself. In the workspace, the **SQL** button opens the same editor to rebuild
-or replace the open database. Extensions the script uses (TPC-H, TPC-DS, ICU,
-JSON, Parquet) autoload from this site.
 
 ## Check and build
 

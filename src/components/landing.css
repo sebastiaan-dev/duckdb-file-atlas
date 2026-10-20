@@ -127,6 +127,33 @@
   outline: 2px solid var(--landing-accent);
   outline-offset: 4px;
 }
+/* With the scenarios open, the drop zone becomes a slim bar. */
+.landing-dropzone.is-compact {
+  min-height: 0;
+  gap: 14px;
+  padding: 14px 22px;
+}
+.landing-dropzone.is-compact .landing-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+.landing-dropzone.is-compact .landing-card-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.landing-dropzone.is-compact .landing-upload-copy {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.landing-dropzone.is-compact strong {
+  font-size: 15px;
+}
+.landing-dropzone.is-compact .landing-upload-copy > span {
+  font-size: 13px;
+}
 .landing-dropzone.is-loading {
   cursor: progress;
 }

@@ -15,13 +15,13 @@ import {
   type RowGroupRef,
 } from "@/lib/row-groups";
 import { RowGroupDetails } from "@/components/row-group-details";
-import { SqlDialog } from "@/components/sql-dialog";
+import { ScenarioDialog } from "@/components/scenario-dialog";
 import {
-  DEFAULT_SQL_RECIPE,
-  decodeRecipe,
-  encodeRecipe,
-  type SqlRecipe,
-} from "@/lib/sql-recipes";
+  DEFAULT_SCENARIO_STATE,
+  decodeScenario,
+  encodeScenario,
+  type ScenarioState,
+} from "@/lib/scenarios";
 import { blockRowGroups, rowGroupColor } from "@/lib/palette";
 import { FreeListView } from "@/components/free-list-view";
 import { LogicalColorLegend } from "@/components/logical-color-legend";
@@ -71,7 +71,8 @@ import {
   PanelLeftOpen,
   Sun,
   FolderOpen,
-  SquareTerminal,
+  FlaskConical,
+  Download,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1605,17 +1606,31 @@ export default function App() {
   const inspectionAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => inspectionAbortRef.current?.abort(), []);
 
-  // The SQL recipe is shared by the landing card, the workspace dialog and
-  // the URL, which carries it for shareable links.
-  const [recipe, setRecipe] = useState<SqlRecipe>(DEFAULT_SQL_RECIPE);
-  const [recipeFromLink, setRecipeFromLink] = useState(false);
-  const [sqlOpen, setSqlOpen] = useState(false);
+  // The scenario state is shared by the landing card, the workspace dialog
+  // and the URL, which carries it for shareable links.
+  const [scenarioState, setScenarioState] = useState<ScenarioState>(
+    DEFAULT_SCENARIO_STATE,
+  );
+  const [scenarioFromLink, setScenarioFromLink] = useState(false);
+  const [scenariosOpen, setScenariosOpen] = useState(false);
+  // Generated databases can be downloaded; opened files are already local.
+  const [generated, setGenerated] = useState(false);
+  const [downloadURL, setDownloadURL] = useState("");
+  useEffect(() => {
+    if (!generated || !activeFile) {
+      setDownloadURL("");
+      return;
+    }
+    const url = URL.createObjectURL(activeFile);
+    setDownloadURL(url);
+    return () => URL.revokeObjectURL(url);
+  }, [generated, activeFile]);
   useEffect(() => {
     let cancelled = false;
-    void decodeRecipe(window.location.hash).then((shared) => {
+    void decodeScenario(window.location.hash).then((shared) => {
       if (!shared || cancelled) return;
-      setRecipe(shared);
-      setRecipeFromLink(true);
+      setScenarioState(shared);
+      setScenarioFromLink(true);
     });
     return () => {
       cancelled = true;
@@ -1636,8 +1651,9 @@ export default function App() {
       if (requestId !== fileLoadRequestRef.current) return false;
       setInspection(result);
       setActiveFile(file);
+      setGenerated(hash !== "");
       setLoadKey((key) => key + 1);
-      // The address describes the open database: a SQL recipe, or nothing.
+      // The address describes the open database: a scenario, or nothing.
       const url = new URL(window.location.href);
       url.hash = hash;
       window.history.replaceState(null, "", url.href.replace(/#$/, ""));
@@ -1659,8 +1675,8 @@ export default function App() {
     return false;
   }, []);
   const openBuiltDatabase = useCallback(
-    async (file: File, built: SqlRecipe) =>
-      loadDatabase(file, await encodeRecipe(built)),
+    async (file: File, built: ScenarioState) =>
+      loadDatabase(file, await encodeScenario(built)),
     [loadDatabase],
   );
 
@@ -1751,11 +1767,11 @@ export default function App() {
           event.target.value = "";
         }}
       />
-      <SqlDialog
-        open={sqlOpen && Boolean(inspection)}
-        onClose={() => setSqlOpen(false)}
-        recipe={recipe}
-        onRecipeChange={setRecipe}
+      <ScenarioDialog
+        open={scenariosOpen && Boolean(inspection)}
+        onClose={() => setScenariosOpen(false)}
+        state={scenarioState}
+        onChange={setScenarioState}
         onBuilt={openBuiltDatabase}
       />
       <header className="topbar">
@@ -1780,16 +1796,27 @@ export default function App() {
           <strong>File Atlas</strong>
         </div>
         <div className="topbar-actions">
+          {inspection && downloadURL && activeFile && (
+            <a
+              className="open-file-button"
+              href={downloadURL}
+              download={activeFile.name}
+              title={`Download ${activeFile.name}`}
+            >
+              <Download size={14} aria-hidden="true" />
+              Download
+            </a>
+          )}
           {inspection && (
             <button
               type="button"
               className="open-file-button"
-              onClick={() => setSqlOpen(true)}
+              onClick={() => setScenariosOpen(true)}
               disabled={loadingFile}
-              title="Build a database from your own SQL"
+              title="Generate a database from a scenario or your own SQL"
             >
-              <SquareTerminal size={14} aria-hidden="true" />
-              SQL
+              <FlaskConical size={14} aria-hidden="true" />
+              Scenarios
             </button>
           )}
           {inspection && (
@@ -1843,17 +1870,12 @@ export default function App() {
           error={error}
           onDismissError={() => setError("")}
           onChooseFile={() => fileInputRef.current?.click()}
-          onGenerated={async (file) => {
-            await loadDatabase(file);
+          scenarios={{
+            state: scenarioState,
+            onChange: setScenarioState,
+            onBuilt: openBuiltDatabase,
           }}
-          sql={{
-            recipe,
-            onRecipeChange: setRecipe,
-            onBuilt: async (file, built) => {
-              await openBuiltDatabase(file, built);
-            },
-          }}
-          generatorMode={recipeFromLink ? "sql" : "tpch"}
+          scenariosOpen={scenarioFromLink}
         />
       )}
     </div>

@@ -196,6 +196,9 @@ summary:focus-visible {
   font-weight: 500;
   white-space: nowrap;
 }
+a.open-file-button {
+  text-decoration: none;
+}
 .open-file-button > svg {
   color: var(--muted);
 }

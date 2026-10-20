@@ -1,0 +1,71 @@
+/* Scenarios card on the landing screen: a one-line header that expands into
+   the scenario builder. Shares the dark glass look of the drop zone. */
+.landing .scenarios-card {
+  text-align: left;
+}
+.scenarios-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  padding: 22px 28px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.scenarios-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.scenarios-copy strong {
+  color: var(--landing-ink);
+  font-size: 17px;
+  font-weight: 520;
+  letter-spacing: -0.02em;
+}
+.scenarios-copy > span {
+  color: var(--landing-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.scenarios-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--landing-muted);
+  transition: transform 150ms ease;
+}
+.scenarios-card.is-open .scenarios-chevron {
+  transform: rotate(180deg);
+}
+.landing .scenarios-card:not(.is-open):hover {
+  border-color: var(--landing-accent);
+  background: rgb(37 38 39 / 95%);
+}
+.scenarios-body {
+  padding: 0 28px 26px;
+}
+@media (max-width: 600px) {
+  .scenarios-header {
+    gap: 14px;
+    padding: 18px 22px;
+  }
+  .scenarios-copy strong {
+    font-size: 16px;
+  }
+  .scenarios-copy > span {
+    font-size: 12px;
+  }
+  .scenarios-body {
+    padding: 0 22px 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scenarios-chevron {
+    transition: none;
+  }
+}

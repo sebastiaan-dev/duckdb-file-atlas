@@ -1,0 +1,299 @@
+/* Scenario builder: shared layout; the landing card and the workspace
+   dialog supply their own colors through the variables below. */
+.scenario-builder {
+  --sb-ink: var(--ink);
+  --sb-muted: var(--muted);
+  --sb-line: var(--line);
+  --sb-fill: var(--panel);
+  --sb-fill-strong: var(--surface);
+  --sb-accent: var(--chart-primary);
+  --sb-accent-ink: #fff;
+  --sb-radius: var(--radius-control, 8px);
+  --sb-menu: var(--surface);
+  display: grid;
+  gap: 14px;
+  color: var(--sb-ink);
+}
+.scenario-builder.is-landing {
+  --sb-ink: var(--landing-ink);
+  --sb-muted: var(--landing-muted);
+  --sb-line: var(--landing-border);
+  --sb-fill: rgb(255 255 255 / 5%);
+  --sb-fill-strong: rgb(255 255 255 / 12%);
+  --sb-accent: var(--landing-accent);
+  --sb-accent-ink: #242631;
+  --sb-radius: 12px;
+  --sb-menu: #2b2c2b;
+}
+.scenario-builder p {
+  margin: 0;
+}
+.scenario-builder p:empty {
+  display: none;
+}
+.scenario-builder button,
+.scenario-builder select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  color: var(--sb-ink);
+  background: var(--sb-fill);
+  border: 1px solid var(--sb-line);
+  border-radius: var(--sb-radius);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.scenario-builder select option {
+  background: var(--surface, #292a29);
+  color: var(--ink, #f7f6f4);
+}
+.is-landing select option {
+  background: #292a29;
+  color: #f7f6f4;
+}
+.scenario-builder button:hover:not(:disabled) {
+  border-color: var(--sb-accent);
+}
+.scenario-builder button:disabled,
+.scenario-builder select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.scenario-builder button:focus-visible,
+.scenario-builder select:focus-visible,
+.scenario-builder textarea:focus-visible,
+.scenario-builder summary:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 2px;
+}
+
+/* Tiles: one row of labels on desktop, wrapping on narrow screens. */
+.scenario-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.scenario-builder .scenario-tile {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 6px 10px;
+  color: var(--sb-muted);
+  white-space: nowrap;
+}
+.scenario-builder .scenario-tile[aria-checked="true"] {
+  color: var(--sb-ink);
+  background: var(--sb-fill-strong);
+  border-color: var(--sb-accent);
+}
+
+/* Settings. */
+.scenario-fields {
+  display: grid;
+  gap: 16px;
+  padding: 4px 0 2px;
+}
+.scenario-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.scenario-field > span {
+  min-width: 86px;
+  color: var(--sb-muted);
+  font-size: 11px;
+}
+.scenario-choices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.scenario-builder .scenario-choices button {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-variant-numeric: tabular-nums;
+}
+.scenario-builder .scenario-choices button[aria-pressed="true"] {
+  color: var(--sb-accent-ink);
+  background: var(--sb-accent);
+  border-color: transparent;
+}
+.scenario-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 98px;
+  color: var(--sb-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.scenario-toggle input {
+  accent-color: var(--sb-accent);
+}
+.scenario-editor,
+.scenario-error pre {
+  font:
+    11.5px/1.6 "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+.scenario-editor {
+  width: 100%;
+  min-height: 170px;
+  resize: vertical;
+  padding: 12px 14px;
+  color: var(--sb-ink);
+  background: rgb(0 0 0 / 18%);
+  border: 1px solid var(--sb-line);
+  border-radius: var(--sb-radius);
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+.is-workspace .scenario-editor {
+  background: var(--panel);
+}
+
+/* Actions, with the file format options in a small menu. */
+.scenario-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sb-line);
+}
+.scenario-actions-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.scenario-builder .scenario-edit {
+  color: var(--sb-muted);
+}
+.scenario-options-menu {
+  position: relative;
+}
+.scenario-builder .scenario-options-toggle {
+  color: var(--sb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.scenario-builder .scenario-options-toggle[aria-expanded="true"] {
+  color: var(--sb-ink);
+  border-color: var(--sb-accent);
+}
+.scenario-options {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  display: grid;
+  gap: 10px;
+  min-width: 220px;
+  padding: 12px;
+  background: var(--sb-menu);
+  border: 1px solid var(--sb-line);
+  border-radius: var(--sb-radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 30%);
+}
+.scenario-options label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.scenario-options label > span {
+  color: var(--sb-muted);
+  font-size: 11px;
+}
+/* The run button is icon-only; its name is the action, e.g. "Generate Churn". */
+.scenario-builder .scenario-run {
+  width: 52px;
+  padding: 0;
+  color: var(--sb-accent-ink);
+  background: var(--sb-accent);
+  border-color: transparent;
+  font-weight: 550;
+}
+.scenario-builder .scenario-run:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--sb-accent), white 15%);
+}
+
+.scenario-builder p[role="status"] {
+  color: var(--sb-accent);
+  font-size: 12px;
+}
+.scenario-error {
+  display: grid !important;
+  gap: 8px;
+  font-size: 12px;
+}
+/* DuckDB errors carry a LINE pointer that relies on line breaks. */
+.scenario-error > span {
+  white-space: pre-wrap;
+}
+.scenario-error pre {
+  margin: 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  opacity: 0.85;
+}
+.is-landing .scenario-error {
+  color: #ffe2db;
+}
+
+@media (max-width: 600px) {
+  .scenario-toggle {
+    margin-left: 0;
+  }
+  .scenario-field > span {
+    min-width: 100%;
+  }
+}
+
+/* Workspace dialog. */
+.scenario-dialog {
+  /* Preflight resets the UA's centering of modal dialogs. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 25%);
+}
+.scenario-dialog::backdrop {
+  background: rgb(20 20 28 / 35%);
+}
+.scenario-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.scenario-dialog-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+}
+.scenario-dialog-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}

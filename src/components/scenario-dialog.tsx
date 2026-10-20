@@ -1,22 +1,22 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
-import { SqlBuilder } from "./sql-builder";
-import type { SqlRecipe } from "@/lib/sql-recipes";
+import { ScenarioBuilder } from "./scenario-builder";
+import type { ScenarioState } from "@/lib/scenarios";
 
-/** Build a database from SQL without leaving the workspace. */
-export function SqlDialog({
+/** Generate a database without leaving the workspace. */
+export function ScenarioDialog({
   open,
   onClose,
-  recipe,
-  onRecipeChange,
+  state,
+  onChange,
   onBuilt,
 }: {
   open: boolean;
   onClose: () => void;
-  recipe: SqlRecipe;
-  onRecipeChange: (recipe: SqlRecipe) => void;
+  state: ScenarioState;
+  onChange: (state: ScenarioState) => void;
   /** Resolves true when the new database opened. */
-  onBuilt: (file: File, recipe: SqlRecipe) => Promise<boolean>;
+  onBuilt: (file: File, state: ScenarioState) => Promise<boolean>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -28,18 +28,18 @@ export function SqlDialog({
   return (
     <dialog
       ref={dialog}
-      className="sql-dialog"
-      aria-labelledby="sql-dialog-title"
+      className="scenario-dialog"
+      aria-labelledby="scenario-dialog-title"
       onClose={onClose}
       onClick={(event) => {
         // Clicking the backdrop (the dialog element itself) closes it.
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="sql-dialog-header">
+      <div className="scenario-dialog-header">
         <div>
-          <h2 id="sql-dialog-title">Build a database from SQL</h2>
-          <p>The result replaces the open database.</p>
+          <h2 id="scenario-dialog-title">Scenarios</h2>
+          <p>The generated database replaces the open one.</p>
         </div>
         <button
           type="button"
@@ -51,11 +51,10 @@ export function SqlDialog({
         </button>
       </div>
       {open && (
-        <SqlBuilder
+        <ScenarioBuilder
           variant="workspace"
-          autoFocus
-          recipe={recipe}
-          onRecipeChange={onRecipeChange}
+          state={state}
+          onChange={onChange}
           onBuilt={async (file, built) => {
             if (await onBuilt(file, built)) onClose();
           }}
