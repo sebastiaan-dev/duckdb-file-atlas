@@ -20,6 +20,24 @@
       "sha256": "0c3a4310f42a4720d74fac7c7d2af1d087ae98e570e33f4d98ded192254d61a8"
     },
     {
+      "asset": "duckdb-threads.wasm",
+      "path": "duckdb-threads.wasm",
+      "size": 33755162,
+      "sha256": "5647581d8d7a018b0b8781fa1f1e1c85a2dade06608c339bc617c5035db6a834"
+    },
+    {
+      "asset": "duckdb-browser-threads.worker.js",
+      "path": "duckdb-browser-threads.worker.js",
+      "size": 871386,
+      "sha256": "d949613c5bbcbcfac5ab30bf1c1f7df8cf50b16318cf2bedd1374da1bd456530"
+    },
+    {
+      "asset": "duckdb-browser-threads.pthread.worker.js",
+      "path": "duckdb-browser-threads.pthread.worker.js",
+      "size": 871285,
+      "sha256": "475883eb069998db712d1ec8cec75d1446de583d5fe0174f2cea17c5d59d9275"
+    },
+    {
       "asset": "tpch.duckdb_extension.wasm",
       "path": "extensions/f8f3f4dcd9/wasm_base/tpch.duckdb_extension.wasm",
       "size": 1082353,
@@ -48,6 +66,36 @@
       "path": "extensions/f8f3f4dcd9/wasm_base/parquet.duckdb_extension.wasm",
       "size": 2213208,
       "sha256": "f1c0432056587ff21fa5fa68c9e35517f31fa829e8765bc677387b3b3be01498"
+    },
+    {
+      "asset": "threads-tpch.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_threads/tpch.duckdb_extension.wasm",
+      "size": 1103350,
+      "sha256": "1def21a66e7b6a96fea93475c06a39bbd314cf931382ac8148e156b088d97eae"
+    },
+    {
+      "asset": "threads-tpcds.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_threads/tpcds.duckdb_extension.wasm",
+      "size": 2282473,
+      "sha256": "7b521fd98ab466711b96e442706dda34265d3143bbe47aa0a72579d7747a17d4"
+    },
+    {
+      "asset": "threads-icu.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_threads/icu.duckdb_extension.wasm",
+      "size": 1179592,
+      "sha256": "ba1d06d86cec88827df02c9f70590aff6584a17b5133cb02111e641e054fe167"
+    },
+    {
+      "asset": "threads-json.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_threads/json.duckdb_extension.wasm",
+      "size": 667678,
+      "sha256": "eccf8fa7abde5990c760fa2c8700f44b05c9a80f6e653d988a50a7bf71475f90"
+    },
+    {
+      "asset": "threads-parquet.duckdb_extension.wasm",
+      "path": "extensions/f8f3f4dcd9/wasm_threads/parquet.duckdb_extension.wasm",
+      "size": 2215416,
+      "sha256": "433ddb332e90246f3fafe1c53c0008034611c391167cce708b3996f50fa4304b"
     }
   ]
 }

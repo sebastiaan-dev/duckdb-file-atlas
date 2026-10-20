@@ -127,6 +127,15 @@ function HeatmapTooltip({
                   : "Unknown"}
             </dd>
           </div>
+          {Boolean(block.overflowSegmentIds?.length) && (
+            <div>
+              <dt>Overflow</dt>
+              <dd>
+                {block.overflowSegmentIds!.length} referencing segment
+                {block.overflowSegmentIds!.length === 1 ? "" : "s"}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Links to</dt>
             <dd>
@@ -186,7 +195,12 @@ const HeatmapCell = memo(function HeatmapCell({
       type="button"
       role="gridcell"
       data-block-id={block.id}
-      className={`heatmap-cell${selected ? " is-selected" : ""}${inRange ? " is-in-range" : ""}${active ? " is-hovered" : ""}${linked ? " is-linked" : ""}${dimmed ? " is-dimmed" : ""}${model.unknown ? " is-unknown" : ""}${block.role === "free" ? " is-free" : ""}`}
+      data-overflow={
+        block.role === "overflow" || !!block.overflowSegmentIds?.length
+          ? "true"
+          : undefined
+      }
+      className={`heatmap-cell${block.role === "overflow" || block.overflowSegmentIds?.length ? " overflow-allocation-mark" : ""}${selected ? " is-selected" : ""}${inRange ? " is-in-range" : ""}${active ? " is-hovered" : ""}${linked ? " is-linked" : ""}${dimmed ? " is-dimmed" : ""}${model.unknown ? " is-unknown" : ""}${block.role === "free" ? " is-free" : ""}`}
       style={{ "--cell-fill": model.fill } as CSSProperties}
       tabIndex={tabbable ? 0 : -1}
       aria-colindex={column + 1}
@@ -267,9 +281,10 @@ export const BlockHeatmap = memo(function BlockHeatmap({
                 : colorMode === "fragmentation"
                   ? internalFreeBytes(block) == null
                   : colorMode === "rowgroup"
-                    ? block.role === "data" && owners.length === 0
+                    ? (block.role === "data" || block.role === "overflow") &&
+                      owners.length === 0
                     : colorMode !== "role" && owners.length === 0)),
-          label: `Block ${block.id}, ${block.role}, offset ${offset(block.offset)}, ${bytes(block.size)}${owners.length ? `, ${owners.join(", ")}` : ""}`,
+          label: `Block ${block.id}, ${block.role}, offset ${offset(block.offset)}, ${bytes(block.size)}${owners.length ? `, ${owners.join(", ")}` : ""}${block.overflowSegmentIds?.length && block.role !== "overflow" ? ", includes overflow allocation" : ""}`,
         };
       }),
     [ordered, segmentsByBlock, colorMode],

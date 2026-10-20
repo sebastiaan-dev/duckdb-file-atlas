@@ -150,6 +150,73 @@ describe("block range summary", () => {
     expect(summary.segmentCount).toBe(3);
   });
 
+  test("counts shared indirect owners with zero measured bytes and deduplicates mixed ownership", () => {
+    const a = {
+      ...segment("a", "main.a", "Uncompressed"),
+      auxiliaryBlocks: [0, 1],
+    };
+    const b = {
+      ...segment("b", "main.b", "Uncompressed"),
+      blockId: 2,
+      auxiliaryBlocks: [1],
+    };
+    const byId = new Map([a, b].map((item) => [item.id, item]));
+    const overflow = {
+      ...block(1, "overflow", [
+        range(1, 0, 8, "checksum"),
+        range(1, 8, 992, "unknown"),
+      ]),
+      overflowSegmentIds: ["a", "a", "b"],
+    };
+    const indirect = summarizeBlockRange([overflow], byId)!;
+    expect(indirect.roles).toEqual([
+      { role: "overflow", blocks: 1, bytes: SIZE },
+    ]);
+    expect(indirect.tables).toEqual([
+      { name: "main.a", bytes: 0, blocks: 1 },
+      { name: "main.b", bytes: 0, blocks: 1 },
+    ]);
+    expect(indirect.rowGroups).toEqual([
+      {
+        name: "main.a · RG 0",
+        rowGroup: { table: "main.a", rowGroup: 0 },
+        bytes: 0,
+        blocks: 1,
+      },
+      {
+        name: "main.b · RG 0",
+        rowGroup: { table: "main.b", rowGroup: 0 },
+        bytes: 0,
+        blocks: 1,
+      },
+    ]);
+    expect(indirect.compressions).toEqual([
+      { name: "Uncompressed", bytes: 0, blocks: 1 },
+    ]);
+    expect(indirect.segmentCount).toBe(2);
+    expect(indirect.used).toEqual({ bytes: 0, ofBytes: 0, blocks: 0 });
+    expect(indirect.internalFree).toEqual({ bytes: 0, ofBytes: 0, blocks: 0 });
+    expect(indirect.unmeasuredBlocks).toBe(1);
+    expect(indirect.composition).toEqual([
+      { kind: "metadata", bytes: 8 },
+      { kind: "unknown", bytes: 992 },
+    ]);
+    const mixed = {
+      ...block(0, "data", [range(0, 8, 32, "segment", { segmentId: "a" })]),
+      segmentIds: ["a"],
+      overflowSegmentIds: ["a"],
+    };
+    const combined = summarizeBlockRange([mixed, overflow], byId)!;
+    expect(combined.tables).toEqual([
+      { name: "main.a", bytes: 32, blocks: 2 },
+      { name: "main.b", bytes: 0, blocks: 1 },
+    ]);
+    expect(combined.segmentCount).toBe(2);
+    expect(combined.compressions).toEqual([
+      { name: "Uncompressed", bytes: 32, blocks: 2 },
+    ]);
+  });
+
   test("an empty selection has no summary", () => {
     expect(summarizeBlockRange([], segments)).toBeNull();
   });

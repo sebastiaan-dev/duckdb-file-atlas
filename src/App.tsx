@@ -82,6 +82,12 @@ import { useContinuousLayout } from "@/hooks/use-continuous-layout";
 import { BlockHeatmap } from "@/components/block-heatmap";
 import { DetailTip, InfoTip } from "@/components/detail-tooltip";
 import { PhysicalLegend } from "@/components/physical-legend";
+import { OverflowAllocations } from "@/components/overflow-allocations";
+import {
+  indexSegmentsByBlock,
+  segmentBlockIds,
+  segmentTouchesBlock,
+} from "@/lib/overflow";
 import {
   roleColors,
   tablePalette,
@@ -313,8 +319,13 @@ function Workspace({
       ? selectedSegment.blockId
       : null);
   const linkedBlockIds = useMemo(
-    () => new Set(blocksById.get(effectiveHoverBlock ?? NaN)?.links ?? []),
-    [blocksById, effectiveHoverBlock],
+    () =>
+      new Set(
+        hoveredBlockId == null && selectedSegment
+          ? (selectedSegment.auxiliaryBlocks ?? [])
+          : (blocksById.get(effectiveHoverBlock ?? NaN)?.links ?? []),
+      ),
+    [blocksById, effectiveHoverBlock, hoveredBlockId, selectedSegment],
   );
   const segmentSearch = useMemo(
     () =>
@@ -359,7 +370,7 @@ function Workspace({
         .filter(
           (entry) => entry.segment.blockId >= 0 && segmentMatches(entry, term),
         )
-        .map((entry) => entry.segment.blockId),
+        .flatMap((entry) => segmentBlockIds(entry.segment)),
     );
     return blockSearch
       .filter(
@@ -384,16 +395,10 @@ function Workspace({
     () => new Set(matchingBlocks.map((block) => block.id)),
     [matchingBlocks],
   );
-  const segmentsByBlock = useMemo(() => {
-    const byBlock = new Map<number, Segment[]>();
-    for (const segment of inspection.segments) {
-      if (segment.blockId < 0) continue;
-      const blockSegments = byBlock.get(segment.blockId) ?? [];
-      blockSegments.push(segment);
-      byBlock.set(segment.blockId, blockSegments);
-    }
-    return byBlock;
-  }, [inspection.segments]);
+  const segmentsByBlock = useMemo(
+    () => indexSegmentsByBlock(inspection.segments),
+    [inspection.segments],
+  );
   const filteredSegments = useMemo(() => {
     const term = deferredQuery.trim().toLocaleLowerCase();
     return term
@@ -444,15 +449,17 @@ function Workspace({
     4096,
     revealBlockIndex,
   );
+  const logicalSelectionOwner =
+    selectedSegment ?? segmentsByBlock.get(selectedBlockId ?? NaN)?.[0];
   const logicalLayout = useContinuousLayout(
     logicalUnits,
     logicalSegments.length > LARGE_SEGMENT_COUNT,
     64,
-    selectedSegment
+    logicalSelectionOwner
       ? logicalUnits.findIndex(
           (group) =>
-            group.table === selectedSegment.table &&
-            group.rowGroup === selectedSegment.rowGroup,
+            group.table === logicalSelectionOwner.table &&
+            group.rowGroup === logicalSelectionOwner.rowGroup,
         )
       : -1,
   );
@@ -804,6 +811,7 @@ function Workspace({
     header: "Headers",
     metadata: "Metadata",
     data: "Table data",
+    overflow: "Overflow",
     index: "Indexes",
     free: "Free space",
     unknown: "Unknown",
@@ -2156,14 +2164,15 @@ const LogicalRow = memo(function LogicalRow({
             {cellSegments.map((segment) => {
               const selected =
                 segment.id === selectedId ||
-                segment.blockId === selectedBlockId;
+                (selectedBlockId != null &&
+                  segmentTouchesBlock(segment, selectedBlockId));
               const appearance = colors.get(segment.id)!;
               const outsideColumn =
                 valueColumnKey != null && columnKey(segment) !== valueColumnKey;
               return (
                 <button
                   type="button"
-                  className={`segment-choice${selected ? " selected" : ""}${segment.blockId < 0 ? " metadata-only" : ""}${outsideColumn ? " outside-value-column" : ""}`}
+                  className={`segment-choice${selected ? " selected" : ""}${segment.auxiliaryBlocks?.length ? " overflow-allocation-mark" : ""}${segment.blockId < 0 ? " metadata-only" : ""}${outsideColumn ? " outside-value-column" : ""}`}
                   key={segment.id}
                   style={
                     {
@@ -2173,8 +2182,8 @@ const LogicalRow = memo(function LogicalRow({
                   }
                   onClick={() => onPick(segment)}
                   aria-pressed={selected}
-                  aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${segment.compression}, ${formatBytes(segment.byteSize)}, ${segment.blockId >= 0 ? `block ${segment.blockId}` : "constant, no data block"}, ${appearance.description}`}
-                  title={`${segment.table}.${segment.column}\nRow group ${segment.rowGroup} · rows ${formatNumber(segment.rowStart)}–${formatNumber(segment.rowStart + segment.rowCount - 1)}\n${segment.compression} · ${formatBytes(segment.byteSize)} · ${segment.blockId >= 0 ? `Block ${segment.blockId}` : "Constant · no data block"}\n${appearance.description}`}
+                  aria-label={`${segment.table}, ${segment.column}, row group ${segment.rowGroup}, ${segment.compression}, ${formatBytes(segment.byteSize)}, ${segment.blockId >= 0 ? `block ${segment.blockId}` : "constant, no data block"}, ${appearance.description}${segment.auxiliaryBlocks?.length ? `, ${segment.auxiliaryBlocks.length} overflow allocations` : ""}`}
+                  title={`${segment.table}.${segment.column}\nRow group ${segment.rowGroup} · rows ${formatNumber(segment.rowStart)}–${formatNumber(segment.rowStart + segment.rowCount - 1)}\n${segment.compression} · ${formatBytes(segment.byteSize)} · ${segment.blockId >= 0 ? `Block ${segment.blockId}` : "Constant · no data block"}\n${appearance.description}${segment.auxiliaryBlocks?.length ? `\n${segment.auxiliaryBlocks.length} overflow allocations` : ""}`}
                 />
               );
             })}
@@ -2376,6 +2385,13 @@ function BlockDetails({
         />
         <span>{block.role} block</span>
       </div>
+      {Boolean(block.overflowSegmentIds?.length) && (
+        <p className="section-caption">
+          String overflow allocation referenced by{" "}
+          {plural(block.overflowSegmentIds!.length, "segment")}. Internal usage
+          is not measured; unused bytes and string chain order are unknown.
+        </p>
+      )}
       <div className="detail-card">
         {onShowFreeList && (
           <Button variant="secondary" size="sm" onClick={onShowFreeList}>
@@ -2676,6 +2692,9 @@ function BlockDetails({
                   </strong>
                   <small>
                     Row group {segment.rowGroup} · {segment.compression}
+                    {block.overflowSegmentIds?.includes(segment.id)
+                      ? " · overflow reference"
+                      : ""}
                   </small>
                 </span>
                 <ArrowUpRight size={14} />
@@ -2835,10 +2854,6 @@ function SegmentDetails({
   const rowSummary = inspection.native?.rowGroupsInfo?.find(
     (row) => row.table === segment.table && row.rowGroup === segment.rowGroup,
   );
-  const linked =
-    block?.links
-      .map((id) => blocksById.get(id))
-      .filter((candidate): candidate is FileBlock => Boolean(candidate)) ?? [];
   const statistics = describeStatistics(segment.stats);
   const bound = (value: string | undefined, prefix: boolean) =>
     value == null ? (
@@ -2994,24 +3009,14 @@ function SegmentDetails({
             </span>
             <ArrowRight size={14} />
           </button>
-          {linked.length > 0 && (
-            <div className="link-list segment-link-list">
-              {linked.map((target) => (
-                <button
-                  className="link-chip"
-                  type="button"
-                  key={target.id}
-                  onClick={() => onBlockClick(target)}
-                >
-                  <ArrowDownRight size={13} />
-                  Block {target.id}
-                  <span>{target.role}</span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
+      <OverflowAllocations
+        key={segment.id}
+        segment={segment}
+        blocksById={blocksById}
+        onBlockClick={onBlockClick}
+      />
       {!inspection.native && (
         <div className="inspector-note">
           <FileCode2 size={14} />

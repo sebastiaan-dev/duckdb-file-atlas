@@ -1,4 +1,5 @@
 import type { Segment } from "./types";
+import { segmentBlockIds } from "./overflow";
 
 export interface RowGroupUnit {
   table: string;
@@ -174,7 +175,7 @@ export function buildLogicalTables(
         if (!cell) cells.set(segment.column, (cell = []));
         cell.push(segment);
         segmentIds.add(segment.id);
-        if (segment.blockId >= 0) blockIds.add(segment.blockId);
+        for (const blockId of segmentBlockIds(segment)) blockIds.add(blockId);
       }
       row = {
         group,

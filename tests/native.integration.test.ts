@@ -296,6 +296,62 @@ native("native checkpoint semantics and allocation sizes", () => {
     }
   }, 60000);
 
+  test("classifies native 16 KiB overflow allocations without inventing extents or chains", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "file-atlas-overflow-"));
+    const path = join(directory, "overflow.duckdb");
+    try {
+      const sql = `SET threads = 1; SET force_compression = 'uncompressed';
+        ATTACH '${path.replaceAll("'", "''")}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+        CREATE TABLE db.documents AS
+          SELECT i AS id, repeat(chr((65 + i % 26)::INTEGER), 20000 + i * 10) AS body
+          FROM range(12) t(i);
+        CHECKPOINT db;`;
+      const child = Bun.spawn([duckdb!, "-no-agent", "-batch", "-c", sql], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stderr = await new Response(child.stderr).text();
+      expect(await child.exited, stderr).toBe(0);
+      const inspection = await inspectFile(Bun.file(path) as unknown as File);
+      expect(inspection.native?.complete, inspection.warnings.join("\n")).toBe(
+        true,
+      );
+      expect(inspection.blockSize).toBe(16384);
+      const overflow = inspection.blocks.filter(
+        (block) => block.role === "overflow",
+      );
+      expect(overflow.length).toBeGreaterThan(0);
+      for (const block of overflow) {
+        const owners = inspection.segments.filter((segment) =>
+          segment.auxiliaryBlocks?.includes(block.id),
+        );
+        expect(owners.length).toBeGreaterThan(0);
+        expect(block.overflowSegmentIds).toEqual(
+          owners.map((segment) => segment.id),
+        );
+        expect(block.segmentIds).toEqual([]);
+        expect(block.usedBytes).toBeNull();
+        expect(block.links).toEqual([]);
+        expect(block.ranges.map((range) => [range.kind, range.size])).toEqual([
+          ["checksum", 8],
+          ["unknown", 16376],
+        ]);
+      }
+      for (const segment of inspection.segments) {
+        for (const id of segment.auxiliaryBlocks ?? []) {
+          const block = inspection.blocks[id + 3];
+          expect(block.overflowSegmentIds).toContain(segment.id);
+          expect(block.usedBytes).toBeNull();
+          expect(block.role).toBe(
+            block.segmentIds.length ? "data" : "overflow",
+          );
+        }
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 60000);
+
   test("reads nested columns, indexes and string overflow without a manifest", async () => {
     const directory = await mkdtemp(join(tmpdir(), "file-atlas-nested-"));
     const path = join(directory, "nested.duckdb");

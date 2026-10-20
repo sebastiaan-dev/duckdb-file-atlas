@@ -1,10 +1,12 @@
 import { internalFreeBytes } from "./fragmentation";
+import { segmentTouchesBlock } from "./overflow";
 import type { ColorMode, FileBlock, Segment, StorageRole } from "./types";
 
 export const roleColors: Record<StorageRole, string> = {
   header: "#f1ac84",
   metadata: "#c6a565",
   data: "#6961d8",
+  overflow: "#be8064",
   index: "#67aaa7",
   free: "var(--chart-empty)",
   unknown: "var(--chart-unknown)",
@@ -91,7 +93,7 @@ export function blockRowGroups(
 ): RowGroupRef[] {
   const seen = new Map<string, RowGroupRef>();
   for (const segment of segments)
-    if (segment.blockId === block.id)
+    if (segmentTouchesBlock(segment, block.id))
       seen.set(JSON.stringify([segment.table, segment.rowGroup]), {
         table: segment.table,
         rowGroup: segment.rowGroup,
@@ -106,7 +108,9 @@ export function blockOwners(
   mode: ColorMode,
   segments: Segment[],
 ) {
-  const owners = segments.filter((segment) => segment.blockId === block.id);
+  const owners = segments.filter((segment) =>
+    segmentTouchesBlock(segment, block.id),
+  );
   if (mode === "table")
     return [
       ...new Set([
@@ -150,8 +154,8 @@ export function blockCellColors(
     const ratio = Math.max(0, Math.min(1, block.usedBytes / block.size));
     return [spaceRamp[rampStep(ratio, utilizationSteps)]];
   }
-  // Only column data belongs to a row group; other roles keep their color.
-  if (mode === "rowgroup" && block.role !== "data")
+  // Direct and overflow column allocations belong to row groups.
+  if (mode === "rowgroup" && block.role !== "data" && block.role !== "overflow")
     return [roleColors[block.role]];
   if (mode === "rowgroup") {
     const groups = blockRowGroups(block, segments);

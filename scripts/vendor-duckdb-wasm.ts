@@ -76,6 +76,7 @@ try {
   for (const artifact of [
     "duckdb-wasm-packages-loadable",
     "extension-repository-base-loadable",
+    "extension-repository-threads-loadable",
   ]) {
     execFileSync(
       "gh",
@@ -160,28 +161,41 @@ try {
   // 2. Runtime assets, staged for the release and described with checksums.
   const stage = join(ROOT, ".cache/duckdb-wasm", sourceId);
   await rm(stage, { recursive: true, force: true });
-  const assets = [
+  const assets: { source: string; path: string; asset?: string }[] = [
     { source: join(pkg, "dist/duckdb-base.wasm"), path: "duckdb-base.wasm" },
     {
       source: join(pkg, "dist/duckdb-browser-base.worker.js"),
       path: "duckdb-browser-base.worker.js",
     },
-    // DuckDB-WASM requests `<repository>/<source id>/<platform>/<name>`.
-    ...EXTENSIONS.map((name) => ({
-      source: join(
-        extensionRoot,
-        sourceId,
-        `wasm_base/${name}.duckdb_extension.wasm`,
-      ),
-      path: `extensions/${sourceId}/wasm_base/${name}.duckdb_extension.wasm`,
+    ...[
+      "duckdb-threads.wasm",
+      "duckdb-browser-threads.worker.js",
+      "duckdb-browser-threads.pthread.worker.js",
+    ].map((path) => ({
+      source: join(pkg, "dist", path),
+      path,
     })),
+    // DuckDB-WASM requests `<repository>/<source id>/<platform>/<name>`.
+    ...["base", "threads"].flatMap((platform) =>
+      EXTENSIONS.map((name) => ({
+        source: join(
+          work,
+          `extension-repository-${platform}-loadable`,
+          sourceId,
+          `wasm_${platform}/${name}.duckdb_extension.wasm`,
+        ),
+        path: `extensions/${sourceId}/wasm_${platform}/${name}.duckdb_extension.wasm`,
+        // Release assets share a flat namespace. Keep existing base names.
+        asset: `${platform === "threads" ? "threads-" : ""}${name}.duckdb_extension.wasm`,
+      })),
+    ),
   ];
   const runtime = [];
   for (const asset of assets) {
     const target = join(stage, asset.path);
     await mkdir(dirname(target), { recursive: true });
     await cp(asset.source, target);
-    const name = asset.path.split("/").at(-1)!;
+    const name = asset.asset ?? asset.path.split("/").at(-1)!;
     runtime.push({
       asset: name,
       path: asset.path,
@@ -225,8 +239,8 @@ duckdb-wasm CI run <https://github.com/${UPSTREAM}/actions/runs/${runId}>
 (loadable-extension variant). Published DuckDB-WASM packages cannot write
 \`STORAGE_VERSION 'v2.0.0'\` yet; the TPC-H generator needs a DuckDB 2.0 build.
 
-Only the JS API lives here. The WASM module, worker and extensions are
-release assets of this repository (\`${tag}\`), listed with checksums in
+Only the JS API lives here. The base and threaded WASM modules, workers and
+matching extensions are release assets of this repository (\`${tag}\`), listed with checksums in
 \`runtime.json\` and fetched by \`scripts/fetch-duckdb-runtime.ts\`.
 
 Regenerate with \`bun scripts/vendor-duckdb-wasm.ts <run id> --publish\`.
@@ -235,7 +249,15 @@ DuckDB and DuckDB-WASM are MIT licensed; see LICENSE.
   );
 
   if (publish) {
-    const uploads = runtime.map((file) => join(stage, file.path));
+    // Use manifest asset names, not basenames (base/thread extensions collide).
+    const uploads = [];
+    const uploadDir = join(stage, "release-assets");
+    await mkdir(uploadDir, { recursive: true });
+    for (const file of runtime) {
+      const path = join(uploadDir, file.asset);
+      await cp(join(stage, file.path), path);
+      uploads.push(path);
+    }
     const exists = execFileSync(
       "gh",
       ["release", "list", "--json", "tagName", "-q", ".[].tagName"],

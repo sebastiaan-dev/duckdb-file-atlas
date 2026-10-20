@@ -1,7 +1,7 @@
 import type { CheckpointDeleteVector } from "./checkpoint-delete";
 
 export type StorageRole =
-  "header" | "metadata" | "data" | "index" | "free" | "unknown";
+  "header" | "metadata" | "data" | "overflow" | "index" | "free" | "unknown";
 export type ColorMode =
   | "role"
   | "table"
@@ -41,7 +41,10 @@ export interface FileBlock {
   label: string;
   usedBytes: number | null;
   ranges: ByteRange[];
+  /** Segments whose direct extents are in this block. */
   segmentIds: string[];
+  /** Segments referencing this allocation indirectly; not measured extents. */
+  overflowSegmentIds?: string[];
   indexIds?: string[];
   indexOwners?: { id: string; table: string; name: string }[];
   links: number[];

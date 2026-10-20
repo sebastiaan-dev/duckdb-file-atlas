@@ -64,6 +64,22 @@ export function rowGroupDatabaseFixture() {
   );
 }
 
+/** Long uncompressed strings spanning several blocks, plus an inline column. */
+export function overflowDatabaseFixture() {
+  return nativeFixture(
+    "browser-overflow.duckdb",
+    (path) => `
+    SET threads = 1;
+    SET force_compression = 'uncompressed';
+    ATTACH '${path}' AS db (STORAGE_VERSION 'v2.0.0', BLOCK_SIZE 16384);
+    CREATE TABLE db.documents AS
+      SELECT i AS id, repeat(chr((65 + i % 26)::INTEGER), 20000 + i * 10) AS body
+      FROM range(12) t(i);
+    CHECKPOINT db;
+  `,
+  );
+}
+
 export const DATA_START = 3 * 4096;
 export const BLOCK_SIZE = 16384;
 

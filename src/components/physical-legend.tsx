@@ -23,11 +23,18 @@ import type {
 } from "@/lib/types";
 
 const CATEGORY_LIMIT = 10;
-const ROLE_ORDER: StorageRole[] = ["data", "index", "metadata", "free"];
+const ROLE_ORDER: StorageRole[] = [
+  "data",
+  "overflow",
+  "index",
+  "metadata",
+  "free",
+];
 const ROLE_LABELS: Record<StorageRole, string> = {
   header: "Header",
   metadata: "Metadata",
   data: "Table data",
+  overflow: "Overflow",
   index: "Index",
   free: "Free",
   unknown: "Unknown",
@@ -50,10 +57,21 @@ const EXPLANATIONS: Record<ColorMode, string> = {
     "Bytes in use as a share of each block. Reusable free blocks are shown separately.",
 };
 
-function Swatch({ color, label }: { color: string; label: string }) {
+function Swatch({
+  color,
+  label,
+  overflow,
+}: {
+  color: string;
+  label: string;
+  overflow?: boolean;
+}) {
   return (
     <span className="legend-item">
-      <i style={{ background: color }} />
+      <i
+        className={overflow ? "overflow-allocation-mark" : undefined}
+        style={{ background: color }}
+      />
       {label}
     </span>
   );
@@ -92,7 +110,7 @@ export const PhysicalLegend = memo(function PhysicalLegend({
               ? roles.has("unknown") ||
                 owned.some(
                   (block) =>
-                    block.role === "data" &&
+                    (block.role === "data" || block.role === "overflow") &&
                     !blockOwners(
                       block,
                       mode,
@@ -107,7 +125,15 @@ export const PhysicalLegend = memo(function PhysicalLegend({
                       segmentsByBlock.get(block.id) ?? EMPTY,
                     ).length,
                 );
-    return { roles, free: roles.has("free"), unknown };
+    return {
+      roles,
+      free: roles.has("free"),
+      unknown,
+      overflow: blocks.some(
+        (block) =>
+          block.role === "overflow" || block.overflowSegmentIds?.length,
+      ),
+    };
   }, [blocks, mode, segmentsByBlock]);
   const categories = useMemo(() => {
     if (mode === "rowgroup")
@@ -185,7 +211,11 @@ export const PhysicalLegend = memo(function PhysicalLegend({
       ) : (
         <>
           {shown.map((entry) => (
-            <Swatch key={entry.label} {...entry} />
+            <Swatch
+              key={entry.label}
+              {...entry}
+              overflow={mode === "role" && entry.label === "Overflow"}
+            />
           ))}
           {hidden > 0 && (
             <button
@@ -205,6 +235,14 @@ export const PhysicalLegend = memo(function PhysicalLegend({
               Show less
             </button>
           )}
+          {presence.overflow &&
+            (mode !== "role" || !presence.roles.has("overflow")) && (
+              <Swatch
+                label="Overflow allocation"
+                color="var(--muted)"
+                overflow
+              />
+            )}
           {showFree && <Swatch label="Free" color={roleColors.free} />}
           {presence.unknown && (
             <span className="legend-unknown">
@@ -224,6 +262,13 @@ export const PhysicalLegend = memo(function PhysicalLegend({
         )}
         <InfoTip label="About the block map">
           <p>{EXPLANATIONS[mode]}</p>
+          {presence.overflow && (
+            <p>
+              A white corner marks string-overflow allocations. In ownership
+              modes their colors follow the referencing segments; internal usage
+              remains unmeasured.
+            </p>
+          )}
           <p>
             Hover a tile for details; click to inspect its bytes. Drag or
             Shift-click to aggregate a range of blocks. Arrow keys move between

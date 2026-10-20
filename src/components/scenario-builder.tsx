@@ -13,12 +13,16 @@ import {
 import {
   BUILD_BLOCK_SIZES,
   BUILD_STORAGE_VERSIONS,
+  BUILD_THREADS,
   DEFAULT_BLOCK_SIZE,
   DEFAULT_STORAGE_VERSION,
+  DEFAULT_THREADS,
   StatementError,
   type BuildBlockSize,
   type BuildStorageVersion,
+  type BuildThreads,
 } from "@/lib/database-builder";
+import { threadSupport } from "@/lib/thread-support";
 import {
   buildError,
   buildScenario,
@@ -62,6 +66,23 @@ export function ScenarioBuilder({
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [threadsSupported, setThreadsSupported] = useState<boolean | null>(
+    null,
+  );
+  useEffect(() => {
+    let mounted = true;
+    void threadSupport().then(
+      (supported) => {
+        if (mounted) setThreadsSupported(supported);
+      },
+      () => {
+        if (mounted) setThreadsSupported(false);
+      },
+    );
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const optionsRef = useRef<HTMLDivElement>(null);
   // Close the options menu on an outside press or Escape.
   useEffect(() => {
@@ -105,6 +126,17 @@ export function ScenarioBuilder({
   const customFormat =
     state.storageVersion !== DEFAULT_STORAGE_VERSION ||
     state.blockSize !== DEFAULT_BLOCK_SIZE;
+  const customThreads = state.threads !== DEFAULT_THREADS;
+  const threadsUnavailable = customThreads && threadsSupported !== true;
+  const threadNotice = threadsUnavailable
+    ? threadsSupported === null
+      ? `Checking support for ${state.threads} threads…`
+      : `${state.threads} threads are unavailable in this browser or page. Select Single threaded in File format options to generate.`
+    : "";
+  const settingsBadge = [
+    ...(customFormat ? [state.storageVersion, kib(state.blockSize)] : []),
+    ...(customThreads ? [`${state.threads} threads`] : []),
+  ].join(" · ");
   const setSetting = (key: string, value: string) =>
     onChange({
       ...state,
@@ -115,7 +147,7 @@ export function ScenarioBuilder({
     });
 
   async function run() {
-    if (active.current || disabled) return;
+    if (active.current || disabled || threadsUnavailable) return;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
@@ -263,7 +295,10 @@ export function ScenarioBuilder({
             type="button"
             className="scenario-run"
             onClick={() => void run()}
-            disabled={disabled || !script.trim()}
+            disabled={disabled || !script.trim() || threadsUnavailable}
+            aria-describedby={
+              threadsUnavailable ? `${id}-thread-notice` : undefined
+            }
             aria-label={
               state.id === "custom" ? "Run SQL" : `Generate ${definition.name}`
             }
@@ -298,16 +333,12 @@ export function ScenarioBuilder({
               aria-label="File format options"
               aria-expanded={optionsOpen}
               aria-controls={`${id}-options`}
-              title="Storage format and block size"
+              title="Storage format, block size and threads"
               onClick={() => setOptionsOpen((value) => !value)}
             >
               <Settings2 size={15} aria-hidden="true" />
               {/* Non-default choices stay visible while the menu is closed. */}
-              {customFormat && (
-                <span>
-                  {state.storageVersion} · {kib(state.blockSize)}
-                </span>
-              )}
+              {settingsBadge && <span>{settingsBadge}</span>}
             </button>
             {optionsOpen && (
               <div
@@ -355,6 +386,46 @@ export function ScenarioBuilder({
                     ))}
                   </select>
                 </label>
+                <label>
+                  <span>Threads</span>
+                  <select
+                    value={state.threads}
+                    disabled={busy}
+                    aria-describedby={
+                      threadsSupported !== true
+                        ? `${id}-thread-support`
+                        : undefined
+                    }
+                    onChange={(event) =>
+                      onChange({
+                        ...state,
+                        threads: Number(event.target.value) as BuildThreads,
+                      })
+                    }
+                  >
+                    {BUILD_THREADS.map((threads) => (
+                      <option
+                        key={threads}
+                        value={threads}
+                        disabled={threads > 1 && threadsSupported !== true}
+                      >
+                        {threads === 1
+                          ? "Single threaded"
+                          : `${threads} threads`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {threadsSupported !== true && (
+                  <p
+                    className="scenario-thread-help"
+                    id={`${id}-thread-support`}
+                  >
+                    {threadsSupported === null
+                      ? "Checking multithreading support…"
+                      : "Multiple threads require browser support and a cross-origin isolated page."}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -374,8 +445,13 @@ export function ScenarioBuilder({
           </button>
         </div>
       </div>
-      <p role="status" aria-live="polite" aria-atomic="true">
-        {progress}
+      <p
+        id={`${id}-thread-notice`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {threadNotice || progress}
       </p>
       {error && (
         <div className="message error-message scenario-error" role="alert">

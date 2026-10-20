@@ -1,0 +1,38 @@
+.overflow-block-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  gap: 6px;
+}
+.overflow-block-link {
+  position: relative;
+  min-height: 34px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, #be8064 22%, var(--surface));
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.overflow-block-link:hover,
+.overflow-block-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A corner mark distinguishes overflow without replacing ownership colors. */
+.overflow-allocation-mark {
+  position: relative;
+}
+.overflow-allocation-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    transparent 72%,
+    rgb(255 255 255 / 90%) 72%
+  );
+  pointer-events: none;
+}

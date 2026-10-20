@@ -299,7 +299,11 @@ export async function inspectCheckpoint(
           segment.rowGroupRowStart = row.start;
           segment.rowGroupRowCount = row.count;
           for (const blockId of segment.auxiliaryBlocks ?? []) {
-            if (!Number.isSafeInteger(blockId) || blockId < 0)
+            if (
+              !Number.isSafeInteger(blockId) ||
+              blockId < 0 ||
+              blockId >= active.blockCount
+            )
               throw new Error("Corrupt checkpoint overflow block pointer.");
             auxiliary.add(blockId);
           }
@@ -358,6 +362,9 @@ export async function inspectCheckpoint(
   let blocks = physical.blocks.map((block) => ({
     ...block,
     ranges: block.ranges.map((range) => ({ ...range })),
+    ...(block.overflowSegmentIds
+      ? { overflowSegmentIds: [...block.overflowSegmentIds] }
+      : {}),
     segmentIds: [...block.segmentIds],
     links: [...block.links],
   }));
@@ -392,7 +399,7 @@ export async function inspectCheckpoint(
         .filter((range) => range.kind !== "unused")
         .reduce((sum, range) => sum + range.size, 0);
   }
-  for (const id of new Set([...auxiliary, ...indexBlocks])) {
+  for (const id of indexBlocks) {
     const block = blocks[id + 3];
     if (
       !block ||
@@ -401,10 +408,8 @@ export async function inspectCheckpoint(
       block.role === "metadata"
     )
       throw new Error("Corrupt checkpoint auxiliary block pointer.");
-    block.role = indexBlocks.has(id) ? "index" : "data";
-    block.label = indexBlocks.has(id)
-      ? "Index allocation"
-      : "String overflow allocation";
+    block.role = "index";
+    block.label = "Index allocation";
   }
   attachNativeSegments(blocks, segments, auxiliary, indexBlocks);
   blocks = refineMetadataRanges(blocks, store.spans);
@@ -469,6 +474,34 @@ export function attachNativeSegments(
   indexBlocks: Set<number> = new Set(),
 ) {
   const byBlock = new Map<number, Segment[]>();
+  const overflowOwners = new Map<number, Set<string>>();
+  // Validate every recorded auxiliary pointer, even for sentinel segments.
+  // Do not mutate the caller's set or infer links from ownership records.
+  const overflowBlocks = new Set(auxiliary);
+  for (const segment of segments) {
+    for (const id of segment.auxiliaryBlocks ?? []) {
+      overflowBlocks.add(id);
+      const owners = overflowOwners.get(id) ?? new Set<string>();
+      owners.add(segment.id);
+      overflowOwners.set(id, owners);
+    }
+  }
+  for (const id of overflowBlocks) {
+    const block = blocks[id + 3];
+    if (
+      !Number.isSafeInteger(id) ||
+      id < 0 ||
+      !block ||
+      block.id !== id ||
+      block.size <= 8 ||
+      block.role === "free" ||
+      block.role === "metadata" ||
+      block.role === "header" ||
+      block.role === "index" ||
+      indexBlocks.has(id)
+    )
+      throw new Error("Corrupt checkpoint overflow block pointer.");
+  }
   for (const segment of segments) {
     if (segment.blockId === -1) {
       if (
@@ -506,6 +539,31 @@ export function attachNativeSegments(
     items.push(segment);
     byBlock.set(block.id, items);
   }
+  for (const id of overflowBlocks) {
+    const block = blocks[id + 3];
+    block.overflowSegmentIds = [...(overflowOwners.get(id) ?? [])];
+    if (byBlock.has(id)) continue;
+    block.role = "overflow";
+    block.label = "String overflow allocation";
+    block.segmentIds = [];
+    block.usedBytes = null;
+    block.ranges = [
+      {
+        id: `native:${id}:checksum`,
+        label: block.checksum ? "Verified checksum" : "Checksum (unverified)",
+        offset: block.offset,
+        size: 8,
+        kind: "checksum",
+      },
+      {
+        id: `native:${id}:overflow`,
+        label: "Unclassified overflow bytes",
+        offset: block.offset + 8,
+        size: block.size - 8,
+        kind: "unknown",
+      },
+    ];
+  }
   for (const [id, items] of byBlock) {
     const block = blocks[id + 3];
     block.role = "data";
@@ -522,7 +580,7 @@ export function attachNativeSegments(
     }
     const complete =
       items.every((segment) => segment.byteSize != null) &&
-      !auxiliary.has(id) &&
+      !overflowBlocks.has(id) &&
       !indexBlocks.has(id);
     const ranges: ByteRange[] = [
       {
@@ -567,8 +625,5 @@ export function attachNativeSegments(
     block.usedBytes = complete
       ? 8 + known.reduce((sum, segment) => sum + segment.byteSize!, 0)
       : null;
-    for (const segment of items)
-      block.links.push(...(segment.auxiliaryBlocks ?? []));
-    block.links = [...new Set(block.links)];
   }
 }

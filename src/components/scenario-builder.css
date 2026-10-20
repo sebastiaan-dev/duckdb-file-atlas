@@ -159,7 +159,7 @@
   background: var(--panel);
 }
 
-/* Actions, with the file format options in a small menu. */
+/* Actions, with build settings in a small menu. */
 .scenario-actions {
   display: flex;
   flex-wrap: wrap;
@@ -211,6 +211,12 @@
 .scenario-options label > span {
   color: var(--sb-muted);
   font-size: 11px;
+}
+.scenario-thread-help {
+  max-width: 36ch;
+  color: var(--sb-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 /* The run button is icon-only; its name is the action, e.g. "Generate Churn". */
 .scenario-builder .scenario-run {

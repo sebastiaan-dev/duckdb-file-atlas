@@ -1,6 +1,7 @@
 import type { AsyncDuckDB } from "@duckdb/duckdb-wasm";
 import runtime from "../../vendor/duckdb-wasm/runtime.json";
 import { findFile, opfsRoot, removeMatching, scratchDirectories } from "./opfs";
+import { threadSupport } from "./thread-support";
 
 /** The vendored DuckDB 2.0 build; see vendor/duckdb-wasm/README.md. */
 export const DUCKDB_WASM_VERSION = runtime.package;
@@ -21,6 +22,10 @@ export const DEFAULT_STORAGE_VERSION: BuildStorageVersion = "v2.0.0";
 export const BUILD_BLOCK_SIZES = [16384, 32768, 65536, 131072, 262144] as const;
 export type BuildBlockSize = (typeof BUILD_BLOCK_SIZES)[number];
 export const DEFAULT_BLOCK_SIZE: BuildBlockSize = 262144;
+
+export const BUILD_THREADS = [1, 2, 4, 8] as const;
+export type BuildThreads = (typeof BUILD_THREADS)[number];
+export const DEFAULT_THREADS: BuildThreads = 1;
 
 /** The attached catalog every script writes into (it is the default). */
 export const BUILD_CATALOG = "generated";
@@ -71,6 +76,7 @@ export interface BuildOptions {
   fileName: string;
   storageVersion?: BuildStorageVersion;
   blockSize?: BuildBlockSize;
+  threads?: BuildThreads;
   /** Extensions to load up front; others autoload from this site on use. */
   extensions?: string[];
   signal?: AbortSignal;
@@ -90,6 +96,7 @@ export async function buildDatabase({
   fileName,
   storageVersion = DEFAULT_STORAGE_VERSION,
   blockSize,
+  threads = DEFAULT_THREADS,
   extensions = [],
   signal,
   onProgress,
@@ -101,6 +108,8 @@ export async function buildDatabase({
     throw new Error(`Unsupported storage version ${String(storageVersion)}.`);
   if (blockSize != null && !BUILD_BLOCK_SIZES.includes(blockSize))
     throw new Error(`Unsupported block size ${String(blockSize)}.`);
+  if (!BUILD_THREADS.includes(threads))
+    throw new Error(`Unsupported thread count ${String(threads)}.`);
   if (extensions.some((name) => !/^[a-z_]+$/.test(name)))
     throw new Error("Invalid extension name.");
   signal?.throwIfAborted();
@@ -136,31 +145,52 @@ export async function buildDatabase({
   }, timeoutMs);
 
   try {
+    if (threads > 1 && !(await wait(threadSupport())))
+      throw new Error(
+        "Multiple threads require browser shared-memory support and cross-origin isolation. Choose Single threaded.",
+      );
     root = await wait(opfsRoot());
     // Sweep files of earlier runs that were interrupted (e.g. a closed tab).
     await wait(removeMatching(root, isBuildFile));
     scratchBefore = await wait(scratchDirectories(root));
     onProgress?.("Downloading DuckDB runtime…");
     const duckdb = await wait(import("@duckdb/duckdb-wasm"));
-    // Only the single-threaded bundle is vendored: threads need cross-origin
-    // isolation, which static hosting cannot provide.
+    // Keep one-thread builds on the smaller base bundle. Never silently
+    // downgrade a requested multithreaded build.
     const bundle = await wait(
       duckdb.selectBundle({
         base: {
           mainModule: duckdbRuntimeURL("duckdb-base.wasm"),
           mainWorker: duckdbRuntimeURL("duckdb-browser-base.worker.js"),
         },
+        ...(threads > 1
+          ? {
+              threads: {
+                mainModule: duckdbRuntimeURL("duckdb-threads.wasm"),
+                mainWorker: duckdbRuntimeURL(
+                  "duckdb-browser-threads.worker.js",
+                ),
+                pthreadWorker: duckdbRuntimeURL(
+                  "duckdb-browser-threads.pthread.worker.js",
+                ),
+              },
+            }
+          : {}),
       }),
     );
+    if (threads > 1 && !bundle.pthreadWorker)
+      throw new Error(
+        "The threaded DuckDB runtime is unavailable. Choose Single threaded.",
+      );
     worker = new Worker(bundle.mainWorker!);
     worker.addEventListener("error", workerError);
     worker.addEventListener("messageerror", messageError);
     db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
-    await wait(db.instantiate(bundle.mainModule));
+    await wait(db.instantiate(bundle.mainModule, bundle.pthreadWorker));
     await wait(
       db.open({
         path: ":memory:",
-        maximumThreads: 1,
+        maximumThreads: threads,
         // The vendored CI build ships unsigned extensions, served from this
         // site next to the runtime they were built with.
         allowUnsignedExtensions: true,
@@ -169,6 +199,9 @@ export async function buildDatabase({
       }),
     );
     const connection = await wait(db.connect());
+    // Set the SQL scheduler explicitly as well as the WASM configuration.
+    // The threaded build may keep additional idle workers in its pool.
+    await wait(connection.query(`SET threads = ${threads}`));
     await wait(connection.query("SET memory_limit = '512MB'"));
     await wait(
       connection.query(

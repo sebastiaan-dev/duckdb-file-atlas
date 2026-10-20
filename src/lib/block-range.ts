@@ -57,6 +57,7 @@ const COMPOSITION_ORDER: RangeByteKind[] = [
 ];
 const ROLE_ORDER: StorageRole[] = [
   "data",
+  "overflow",
   "index",
   "metadata",
   "free",
@@ -160,6 +161,26 @@ export function summarizeBlockRange(
       used.bytes += block.usedBytes;
       used.ofBytes += block.size;
       used.blocks++;
+    }
+    // Ownership is recorded even when no exact extent is known. Indirect
+    // allocations contribute blocks, never invented payload byte counts.
+    for (const id of new Set([
+      ...block.segmentIds,
+      ...(block.overflowSegmentIds ?? []),
+    ])) {
+      const segment = segmentsById.get(id);
+      if (!segment) continue;
+      segments.add(segment.id);
+      addOwner(tables, segment.table, 0, block.id);
+      addOwner(
+        rowGroups,
+        `${segment.table} · RG ${segment.rowGroup}`,
+        0,
+        block.id,
+        { table: segment.table, rowGroup: segment.rowGroup },
+      );
+      if (segment.compression)
+        addOwner(compressions, segment.compression, 0, block.id);
     }
     let mapped = 0;
     let unused = 0;

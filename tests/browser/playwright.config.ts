@@ -11,6 +11,9 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:5183",
     viewport: { width: 1400, height: 1000 },
     trace: "retain-on-failure",
+    // Most tests intercept downloads. A worker would bypass page.route();
+    // threads.e2e.ts explicitly enables it to test the real Pages bootstrap.
+    serviceWorkers: "block",
   },
   webServer: {
     command: "bun run dev --port 5183 --strictPort",

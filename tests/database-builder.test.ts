@@ -18,6 +18,8 @@ let worker: TestWorker | undefined;
 let bundleURLs: string[];
 let openConfig: unknown;
 let bytes: Uint8Array;
+let instantiated: unknown[];
+let supportsThreads = true;
 
 /** Minimal in-memory OPFS: directories of named files and subdirectories. */
 class FakeDirectory {
@@ -65,14 +67,23 @@ class TestWorker extends EventTarget {
 
 mock.module("@duckdb/duckdb-wasm", () => ({
   VoidLogger: class {},
+  getPlatformFeatures: async () => ({
+    crossOriginIsolated: globalThis.crossOriginIsolated,
+    wasmExceptions: true,
+    wasmSIMD: true,
+    wasmThreads: supportsThreads,
+  }),
   selectBundle: async (bundles: {
     base: { mainModule: string; mainWorker: string };
+    threads?: { mainModule: string; mainWorker: string; pthreadWorker: string };
   }) => {
-    bundleURLs = Object.values(bundles.base);
-    return bundles.base;
+    const bundle = bundles.threads ?? bundles.base;
+    bundleURLs = Object.values(bundle);
+    return bundle;
   },
   AsyncDuckDB: class {
-    instantiate() {
+    instantiate(...args: unknown[]) {
+      instantiated = args;
       return instantiate();
     }
     async open(config: unknown) {
@@ -111,6 +122,10 @@ mock.module("@duckdb/duckdb-wasm", () => ({
   },
 }));
 
+const originalIsolation = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "crossOriginIsolated",
+);
 const originalWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
 const originalStorage = Object.getOwnPropertyDescriptor(
   globalThis.navigator,
@@ -118,6 +133,12 @@ const originalStorage = Object.getOwnPropertyDescriptor(
 );
 
 beforeEach(() => {
+  instantiated = [];
+  supportsThreads = true;
+  Object.defineProperty(globalThis, "crossOriginIsolated", {
+    configurable: true,
+    value: true,
+  });
   calls = [];
   bundleURLs = [];
   worker = undefined;
@@ -138,6 +159,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalIsolation)
+    Object.defineProperty(globalThis, "crossOriginIsolated", originalIsolation);
+  else Reflect.deleteProperty(globalThis, "crossOriginIsolated");
   if (originalWorker)
     Object.defineProperty(globalThis, "Worker", originalWorker);
   else Reflect.deleteProperty(globalThis, "Worker");
@@ -194,6 +218,7 @@ describe("TPC-H scenario", () => {
       opfs: { fileHandling: "auto" },
     });
     expect(calls).toEqual([
+      "SET threads = 1",
       "SET memory_limit = '512MB'",
       `SET custom_extension_repository = '${duckdbRuntimeURL("extensions")}'`,
       expect.stringMatching(
@@ -300,6 +325,7 @@ describe("database builder", () => {
     });
     expect(file.name).toBe("custom.duckdb");
     expect(calls).toEqual([
+      "SET threads = 1",
       "SET memory_limit = '512MB'",
       `SET custom_extension_repository = '${duckdbRuntimeURL("extensions")}'`,
       expect.stringMatching(
@@ -337,10 +363,58 @@ describe("database builder", () => {
     expect(opfsFiles()).toEqual([]);
   });
 
+  for (const threads of [2, 4, 8] as const) {
+    test(`selects the threaded runtime and scheduler for ${threads} threads`, async () => {
+      await buildDatabase({
+        statements: script,
+        fileName: "threads.duckdb",
+        threads,
+      });
+      expect(openConfig).toMatchObject({ maximumThreads: threads });
+      expect(calls[0]).toBe(`SET threads = ${threads}`);
+      expect(instantiated).toEqual([
+        duckdbRuntimeURL("duckdb-threads.wasm"),
+        duckdbRuntimeURL("duckdb-browser-threads.pthread.worker.js"),
+      ]);
+      expect(worker?.url).toBe(
+        duckdbRuntimeURL("duckdb-browser-threads.worker.js"),
+      );
+      expect(opfsFiles()).toEqual([]);
+    });
+  }
+
+  test("does not silently downgrade when isolation is missing", async () => {
+    Object.defineProperty(globalThis, "crossOriginIsolated", {
+      configurable: true,
+      value: false,
+    });
+    await expect(
+      buildDatabase({ statements: script, fileName: "x.duckdb", threads: 2 }),
+    ).rejects.toThrow("Choose Single threaded");
+    expect(worker).toBeUndefined();
+    // The base bundle still works on these browsers.
+    await buildDatabase({
+      statements: script,
+      fileName: "x.duckdb",
+      threads: 1,
+    });
+    expect(worker?.url).toBe(duckdbRuntimeURL("duckdb-browser-base.worker.js"));
+  });
+
+  test("rejects threads when shared WASM memory is unsupported", async () => {
+    supportsThreads = false;
+    await expect(
+      buildDatabase({ statements: script, fileName: "x.duckdb", threads: 8 }),
+    ).rejects.toThrow("Choose Single threaded");
+    expect(worker).toBeUndefined();
+  });
+
   test("options that become SQL must be known values", async () => {
     for (const options of [
       { storageVersion: "v9.9.9' ) ; DROP" },
       { blockSize: 1234 },
+      { threads: 3 },
+      { threads: "2; DROP" },
       { extensions: ["tpch; DROP"] },
     ])
       await expect(

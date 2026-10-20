@@ -1,11 +1,14 @@
 import {
   BUILD_BLOCK_SIZES,
   BUILD_STORAGE_VERSIONS,
+  BUILD_THREADS,
   buildDatabase,
   DEFAULT_BLOCK_SIZE,
   DEFAULT_STORAGE_VERSION,
+  DEFAULT_THREADS,
   type BuildBlockSize,
   type BuildStorageVersion,
+  type BuildThreads,
 } from "./database-builder";
 import { splitStatements } from "./sql-statements";
 
@@ -246,6 +249,7 @@ export interface ScenarioState {
   script: string;
   storageVersion: BuildStorageVersion;
   blockSize: BuildBlockSize;
+  threads: BuildThreads;
 }
 
 export const DEFAULT_SCENARIO_STATE: ScenarioState = {
@@ -258,6 +262,7 @@ export const DEFAULT_SCENARIO_STATE: ScenarioState = {
   ),
   storageVersion: DEFAULT_STORAGE_VERSION,
   blockSize: DEFAULT_BLOCK_SIZE,
+  threads: DEFAULT_THREADS,
 };
 
 /** Keep only allowed values; settings are interpolated into SQL. */
@@ -298,6 +303,7 @@ export function buildScenario(
     ),
     storageVersion: state.storageVersion,
     blockSize: state.blockSize,
+    threads: state.threads,
     statements: statements.map(({ text, line }) => ({ sql: text, line })),
     timeoutMessage:
       "The build did not finish within five minutes. Try a smaller scenario.",
@@ -310,7 +316,7 @@ export function buildError(error: unknown): string {
 }
 
 // --- Shareable links ------------------------------------------------------
-// `#scenario=churn&rows=300000&…&storage=v2.0.0&block=262144`; custom SQL is
+// `#scenario=churn&rows=300000&…&storage=v2.0.0&block=262144&threads=1`; custom SQL is
 // `#scenario=custom&sql=<deflate-raw, base64url>&…`.
 
 const toBase64Url = (bytes: Uint8Array) =>
@@ -345,6 +351,7 @@ export async function encodeScenario(state: ScenarioState): Promise<string> {
       params.set(key, value);
   params.set("storage", state.storageVersion);
   params.set("block", String(state.blockSize));
+  params.set("threads", String(state.threads));
   return params.toString();
 }
 
@@ -387,5 +394,9 @@ export async function decodeScenario(
   const block = Number(params.get("block")) as BuildBlockSize;
   if (BUILD_STORAGE_VERSIONS.includes(storage)) state.storageVersion = storage;
   if (BUILD_BLOCK_SIZES.includes(block)) state.blockSize = block;
+  const threads = BUILD_THREADS.find(
+    (value) => String(value) === params.get("threads"),
+  );
+  if (threads != null) state.threads = threads;
   return state;
 }

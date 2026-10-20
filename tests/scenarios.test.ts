@@ -82,10 +82,11 @@ test("links round-trip scenario settings and custom SQL", async () => {
     }),
     storageVersion: "v1.3.0" as const,
     blockSize: 65536 as const,
+    threads: 4 as const,
   };
   const hash = await encodeScenario(churn);
   expect(hash).toBe(
-    "scenario=churn&rows=1000000&delete=90&update=50&checkpoint=1&refill=1&storage=v1.3.0&block=65536",
+    "scenario=churn&rows=1000000&delete=90&update=50&checkpoint=1&refill=1&storage=v1.3.0&block=65536&threads=4",
   );
   expect(await decodeScenario(`#${hash}`)).toEqual(churn);
 
@@ -93,6 +94,7 @@ test("links round-trip scenario settings and custom SQL", async () => {
     ...DEFAULT_SCENARIO_STATE,
     id: "custom",
     script: `${"SELECT 'naïve ✓';\n".repeat(50)}-- done`,
+    threads: 8,
   };
   const customHash = await encodeScenario(custom);
   expect(customHash).toMatch(/^scenario=custom&sql=[\w-]+&storage=/);
@@ -100,15 +102,58 @@ test("links round-trip scenario settings and custom SQL", async () => {
   expect(await decodeScenario(`#${customHash}`)).toEqual(custom);
 });
 
-test("old SQL links still open as custom scripts", async () => {
-  const hash = (
-    await encodeScenario({
-      ...DEFAULT_SCENARIO_STATE,
-      id: "custom",
-      script: "SELECT 1;",
-    })
-  ).replace("scenario=custom&", "");
-  expect((await decodeScenario(`#${hash}`))?.script).toBe("SELECT 1;");
+test("old SQL links still open as single-threaded custom scripts", async () => {
+  const hash = await encodeScenario({
+    ...DEFAULT_SCENARIO_STATE,
+    id: "custom",
+    script: "SELECT 1;",
+    threads: 8,
+  });
+  const sql = new URLSearchParams(hash).get("sql");
+  expect(await decodeScenario(`#sql=${sql}`)).toEqual({
+    ...DEFAULT_SCENARIO_STATE,
+    id: "custom",
+    script: "SELECT 1;",
+    threads: 1,
+  });
+});
+
+test("legacy scenario links default to one thread", async () => {
+  expect(DEFAULT_SCENARIO_STATE.threads).toBe(1);
+  expect(await decodeScenario("#scenario=tpch&sf=0.1")).toEqual(
+    withSettings("tpch", { sf: "0.1" }),
+  );
+});
+
+test("links preserve every supported thread count", async () => {
+  for (const threads of [1, 2, 4, 8] as const) {
+    const state = { ...DEFAULT_SCENARIO_STATE, threads };
+    const hash = await encodeScenario(state);
+    expect(new URLSearchParams(hash).get("threads")).toBe(String(threads));
+    expect(await decodeScenario(`#${hash}`)).toEqual(state);
+  }
+});
+
+test("invalid link thread counts fall back to one thread", async () => {
+  for (const threads of [
+    "",
+    "0",
+    "-1",
+    "3",
+    "16",
+    "1.5",
+    "2.0",
+    "2e0",
+    "0x2",
+    "02",
+    " 2 ",
+    "Infinity",
+    "NaN",
+    "2;DROP TABLE t",
+  ]) {
+    const hash = new URLSearchParams({ scenario: "tpch", threads });
+    expect(await decodeScenario(`#${hash}`)).toEqual(DEFAULT_SCENARIO_STATE);
+  }
 });
 
 test("damaged or foreign hashes never inject values", async () => {

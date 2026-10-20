@@ -140,7 +140,7 @@ test("shared links reopen the scenario and its settings without running", async 
   await expect(page.getByRole("button", { name: "Link copied" })).toBeVisible();
   const link = await page.evaluate(() => navigator.clipboard.readText());
   expect(new URL(link).hash).toBe(
-    "#scenario=churn&rows=1000000&delete=90&update=50&checkpoint=1&refill=0&storage=v1.3.0&block=65536",
+    "#scenario=churn&rows=1000000&delete=90&update=50&checkpoint=1&refill=0&storage=v1.3.0&block=65536&threads=1",
   );
 
   await page.goto(link);
@@ -270,7 +270,7 @@ for (const scale of ["0.01", "0.1", "1"]) {
       ),
     ).toBe(true);
     expect(new URL(page.url()).hash).toBe(
-      `#scenario=tpch&sf=${scale}&storage=v2.0.0&block=262144`,
+      `#scenario=tpch&sf=${scale}&storage=v2.0.0&block=262144&threads=1`,
     );
 
     const downloaded = page.waitForEvent("download");
@@ -317,6 +317,10 @@ for (const [name, button, file, expected] of SCENARIO_TABLES) {
     const names = await tables(page);
     if (name === "TPC-DS") expect(names).toHaveLength(24);
     else expect(names).toEqual(expected);
+    if (name === "Overflow")
+      await expect(
+        page.locator('.heatmap-cell[data-overflow="true"]').first(),
+      ).toBeVisible();
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 }

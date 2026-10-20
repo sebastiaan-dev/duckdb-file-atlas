@@ -20,6 +20,16 @@ The database summary starts collapsed to a single line (file name, key figures, 
 
 Row groups connect the two maps. The **Row group** color mode keeps each table's color and cycles successive row groups through its shades, so row-group boundaries and blocks shared by several row groups are visible at a glance; index and metadata blocks keep their role color. Click a row group's **RG** label in the logical map, **Show row group on disk** in a segment's inspector, or a row group listed for a block or block range to highlight every block that row group touches (including string-overflow blocks) and dim the rest. The inspector then reports its rows, columns, measured column bytes, blocks, byte span, the number of contiguous runs in file order, and blocks shared with other row groups.
 
+String-overflow allocations have their own **Overflow** storage role and a white
+corner mark in the physical map. Table, column, compression, and row-group colors
+follow their referencing segments, including shared allocations. Search includes
+them, and logical cells with overflow carry the same corner mark. Select an
+overflow block to navigate to its owning segment; the segment inspector shows a
+bounded, clickable allocation map in file order. Mixed inline/overflow blocks
+retain the data role with the overflow mark. Allocation references do not reveal
+individual string pointers or chain order, and internal payload/free bytes remain
+unknown; allocated block capacity is never presented as measured segment usage.
+
 The heatmap adapts the compact cell and hover treatment from [Bklit's heatmap](https://bklit.com/docs/components/heatmap-chart) to physical block IDs. It does not use calendar dates or add placeholder blocks. The implementation uses the existing React/shadcn stack without a new chart dependency.
 
 ## Visualization approach
@@ -53,9 +63,10 @@ settings, and generate:
 | Overflow    | rows, string length, ZSTD on/off                      | string overflow blocks (or ZSTD instead)                                |
 | Custom      | your SQL                                              | anything                                                                |
 
-Every tile compiles to SQL (**Edit SQL** continues in
-Custom). Storage format (v1.0.0–v2.0.0) and block size (16–256 KiB), in the
-settings menu next to **Copy link**, apply to all of them. The script runs statement by statement in a fresh database whose
+Every tile compiles to SQL (**Edit SQL** continues in Custom). Storage format
+(v1.0.0–v2.0.0), block size (16–256 KiB), and threads (1 / 2 / 4 / 8) live in
+the settings menu next to **Copy link** and apply to every scenario. The script
+runs statement by statement in a fresh database whose
 default catalog is the new file, so unqualified `CREATE TABLE` statements land
 in it; the file is then checkpointed and opened. A failing statement is
 reported with its number and line, and nothing is opened. Generated files can
@@ -68,12 +79,24 @@ The address bar then describes the database (`#scenario=churn&rows=…`, or
 compressed SQL for Custom, in the URL fragment, which is never sent to a
 server), and **Copy link** copies it. A shared link opens the same scenario
 and settings, but never runs by itself; every value is checked against the
-scenario's options before it can reach SQL.
+scenario's options before it can reach SQL. Links also preserve the thread count;
+older links default to single-threaded generation.
+
+**Threads:** single-threaded generation is the default and uses the smaller base
+runtime. Multiple threads require shared WebAssembly memory and cross-origin
+isolation. On GitHub Pages, a scope-local service worker adds the required
+COOP/COEP headers, with one guarded reload before the app mounts on the first
+visit. It does not cache files, send data elsewhere, or control other site paths.
+If the browser blocks isolation or lacks thread support, multi-thread choices are
+disabled. Shared links requesting them remain unchanged and explain how to choose
+**Single threaded** instead. Thread count controls DuckDB's execution parallelism;
+not every operation uses all threads, and the WASM runtime may retain idle workers.
 
 No published DuckDB-WASM release can write v2.0 storage yet, so the app vendors
 a DuckDB 2.0 build of DuckDB-WASM (see `vendor/duckdb-wasm/README.md`). The JS
-API lives in `vendor/duckdb-wasm`; the 35 MB WASM module, its worker and the
-matching extensions (TPC-H, TPC-DS, ICU, JSON, Parquet, autoloaded on use) are
+API lives in `vendor/duckdb-wasm`; the base and threaded WASM modules (about
+35 MB each), workers and matching extensions (TPC-H, TPC-DS, ICU, JSON,
+Parquet, autoloaded on use) are
 assets of a GitHub release of this repository. `bun run dev` and
 `bun run build` install them into `public/duckdb-runtime/` (checksum-verified,
 git-ignored), so the deployed site serves the runtime itself: no CDN,

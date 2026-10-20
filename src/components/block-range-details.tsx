@@ -38,6 +38,7 @@ const ROLE_LABELS: Record<StorageRole, string> = {
   header: "Header",
   metadata: "Metadata",
   data: "Table data",
+  overflow: "Overflow",
   index: "Index",
   free: "Free",
   unknown: "Unknown",
@@ -117,7 +118,7 @@ function OwnerList({
                   </span>
                 </>
               );
-              const title = `${owner.name}: ${formatBytes(owner.bytes, true)} in ${formatNumber(owner.blocks)} block${owner.blocks === 1 ? "" : "s"}`;
+              const title = `${owner.name}: ${formatBytes(owner.bytes, true)} measured in ${formatNumber(owner.blocks)} referenced block${owner.blocks === 1 ? "" : "s"}`;
               return onPick ? (
                 <button
                   type="button"
@@ -213,7 +214,8 @@ export function BlockRangeDetails({
         <p className="section-caption range-coverage">
           {formatNumber(nonFreeBlocks - unmeasuredBlocks)} of{" "}
           {formatNumber(nonFreeBlocks)} allocated blocks record their usage;
-          totals cover only those.
+          totals cover only those. Owner byte totals include measured ranges
+          only, not unmeasured overflow payloads.
         </p>
       )}
 

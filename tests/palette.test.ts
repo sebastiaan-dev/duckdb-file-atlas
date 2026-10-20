@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   blockCellColors,
   blockOwners,
+  blockRowGroups,
+  rowGroupColor,
   fragmentationSteps,
   rampLabels,
   rampStep,
@@ -94,6 +96,54 @@ test("existing segment owners retain their stable keys with named indexes added"
     "main.t / named_index",
   ]);
   expect(blockOwners(block, "compression", [segment])).toEqual(["BitPacking"]);
+});
+
+test("overflow uses indirect table, column, compression and row-group ownership without measuring usage", () => {
+  const overflow: FileBlock = {
+    ...block,
+    id: 9,
+    role: "overflow",
+    usedBytes: null,
+    ranges: [],
+    indexIds: [],
+    indexOwners: [],
+    overflowSegmentIds: ["a", "b"],
+  };
+  const a = {
+    id: "a",
+    blockId: 0,
+    auxiliaryBlocks: [9, 9],
+    table: "main.a",
+    column: "text",
+    compression: "Uncompressed",
+    rowGroup: 0,
+  } as Segment;
+  const b = { ...a, id: "b", blockId: 1, rowGroup: 1 };
+  const owners = [a, b];
+  expect(blockOwners(overflow, "table", owners)).toEqual(["main.a"]);
+  expect(blockOwners(overflow, "column", owners)).toEqual(["main.a.text"]);
+  expect(blockOwners(overflow, "compression", owners)).toEqual([
+    "Uncompressed",
+  ]);
+  const groups = [
+    { table: "main.a", rowGroup: 0 },
+    { table: "main.a", rowGroup: 1 },
+  ];
+  expect(blockRowGroups(overflow, owners)).toEqual(groups);
+  expect(blockCellColors(overflow, "rowgroup", owners)).toEqual(
+    groups.map(rowGroupColor),
+  );
+  expect(blockCellColors(overflow, "role", owners)).toEqual(["#be8064"]);
+  for (const mode of ["utilization", "fragmentation"] as const)
+    expect(blockCellColors(overflow, mode, owners)).toEqual([
+      roleColors.unknown,
+    ]);
+  // Same ownership semantics for a mixed block, deduplicating direct/indirect.
+  expect(
+    blockRowGroups({ ...overflow, role: "data", id: 0 }, [
+      { ...a, auxiliaryBlocks: [0] },
+    ]),
+  ).toEqual([groups[0]]);
 });
 
 describe("space ramp legend steps", () => {

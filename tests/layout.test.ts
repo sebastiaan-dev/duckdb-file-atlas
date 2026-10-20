@@ -154,7 +154,7 @@ test("uses checkpoint row-group coverage instead of nested list element counts",
 
 test("indexes logical cells without losing shared blocks, constants, or multi-segment columns", () => {
   const segments = [
-    segment({ id: "a1", column: "a", blockId: 7 }),
+    segment({ id: "a1", column: "a", blockId: 7, auxiliaryBlocks: [9, 10, 9] }),
     segment({ id: "a2", column: "a", blockId: 8, rowStart: 1000 }),
     segment({
       id: "validity",
@@ -173,7 +173,7 @@ test("indexes logical cells without losing shared blocks, constants, or multi-se
     "validity",
     "a2",
   ]);
-  expect(tables[0].rows[0].blockIds).toEqual(new Set([7, 8]));
+  expect(tables[0].rows[0].blockIds).toEqual(new Set([7, 8, 9, 10]));
   expect(tables[0].rows[0].segmentIds.has("validity")).toBe(true);
   expect(tables[1].rows[0].blockIds.has(7)).toBe(true);
   expect(tables.reduce((count, table) => count + table.segmentCount, 0)).toBe(
