@@ -45,25 +45,33 @@ test("overflow allocations are distinct and navigate to their owning segment", a
     "overflow block",
   );
   await expect(page.locator(".detail-content")).toContainText(
-    "Internal usage is not measured",
+    "contents are not decoded",
   );
   await page
     .locator(".owner-row")
     .filter({ hasText: "main.documents.body" })
     .click();
   await expect(
-    page.getByRole("region", { name: "Overflow allocations" }),
+    page.getByRole("group", { name: "Overflow allocations" }),
   ).toBeVisible();
-  const allocations = page.getByRole("region", {
+  const allocations = page.getByRole("group", {
     name: "Overflow allocations",
   });
-  await expect(allocations.getByRole("button").first()).toBeVisible();
-  await allocations
-    .getByRole("button", {
-      name: `Inspect overflow block ${blockId}`,
-      exact: true,
-    })
-    .click();
+  // Contiguous allocations collapse into one run that selects a block range.
+  const run = allocations.getByRole("button", {
+    name: /^Select overflow blocks \d+ to \d+$/,
+  });
+  await expect(run).toHaveCount(1);
+  const [, first, last] = (await run.getAttribute("aria-label"))!.match(
+    /(\d+) to (\d+)/,
+  )!;
+  expect(Number(first)).toBeLessThanOrEqual(Number(blockId));
+  expect(Number(last)).toBeGreaterThanOrEqual(Number(blockId));
+  await run.click();
+  await expect(
+    page.locator(`.heatmap-cell[data-block-id="${blockId}"]`),
+  ).toHaveClass(/is-in-range/);
+  await page.locator(`.heatmap-cell[data-block-id="${blockId}"]`).click();
   await expect(page.locator(".selected-kind-row")).toContainText(
     "overflow block",
   );
@@ -79,4 +87,7 @@ test("overflow allocations are distinct and navigate to their owning segment", a
     .first();
   await expect(logical).toHaveAttribute("aria-label", /overflow allocations/);
   await expect(logical).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".logical-color-legend")).toContainText(
+    "Has overflow",
+  );
 });

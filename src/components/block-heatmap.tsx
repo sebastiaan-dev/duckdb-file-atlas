@@ -117,7 +117,7 @@ function HeatmapTooltip({
             </div>
           )}
           <div>
-            <dt>Owners</dt>
+            <dt>{block.role === "overflow" ? "Overflow of" : "Owners"}</dt>
             <dd>
               {owners.length
                 ? owners.slice(0, 3).join(", ") +
@@ -127,29 +127,30 @@ function HeatmapTooltip({
                   : "Unknown"}
             </dd>
           </div>
-          {Boolean(block.overflowSegmentIds?.length) && (
+          {block.role !== "overflow" &&
+            Boolean(block.overflowSegmentIds?.length) && (
+              <div>
+                <dt>Also overflow</dt>
+                <dd>
+                  {block.overflowSegmentIds!.length} referencing segment
+                  {block.overflowSegmentIds!.length === 1 ? "" : "s"}
+                </dd>
+              </div>
+            )}
+          {block.links.length > 0 && (
             <div>
-              <dt>Overflow</dt>
+              <dt>Links to</dt>
               <dd>
-                {block.overflowSegmentIds!.length} referencing segment
-                {block.overflowSegmentIds!.length === 1 ? "" : "s"}
+                {block.links
+                  .slice(0, 6)
+                  .map((id) => `#${id}`)
+                  .join(", ") +
+                  (block.links.length > 6
+                    ? ` +${block.links.length - 6} more`
+                    : "")}
               </dd>
             </div>
           )}
-          <div>
-            <dt>Links to</dt>
-            <dd>
-              {block.links.length
-                ? block.links
-                    .slice(0, 6)
-                    .map((id) => `#${id}`)
-                    .join(", ") +
-                  (block.links.length > 6
-                    ? ` +${block.links.length - 6} more`
-                    : "")
-                : "None recorded"}
-            </dd>
-          </div>
         </dl>
         <Tooltip.Arrow className="block-heatmap-tooltip-arrow" />
       </Tooltip.Content>

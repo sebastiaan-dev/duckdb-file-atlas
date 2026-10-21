@@ -1,38 +1,82 @@
-.overflow-block-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
-  gap: 6px;
+.overflow-allocations {
+  margin-top: 12px;
 }
-.overflow-block-link {
-  position: relative;
-  min-height: 34px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, #be8064 22%, var(--surface));
-  color: var(--ink);
-  font-size: 11px;
+.overflow-allocations-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.overflow-allocations-heading > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.overflow-allocations-heading > span:last-child {
+  color: var(--subtle);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+}
+.overflow-run-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overflow-run {
   cursor: pointer;
 }
-.overflow-block-link:hover,
-.overflow-block-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.overflow-run:hover,
+.overflow-run:focus-visible {
+  border-color: var(--muted);
+  color: var(--ink);
 }
-/* A corner mark distinguishes overflow without replacing ownership colors. */
+.overflow-run-swatch {
+  flex: none;
+  width: 27px;
+  height: 29px;
+  border-radius: 7px;
+  --overflow-mark-size: 9px;
+}
+.overflow-allocations .raw-header-link {
+  margin-top: 8px;
+}
+
+/*
+ * A clipped corner distinguishes overflow without replacing ownership colors.
+ * It uses the surface color, so it reads as a notch in either theme, and has a
+ * fixed size: proportional marks vanish on small tiles and dominate wide bars.
+ */
 .overflow-allocation-mark {
   position: relative;
 }
 .overflow-allocation-mark::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  right: 0;
+  bottom: 0;
+  width: var(--overflow-mark-size, 6px);
+  height: var(--overflow-mark-size, 6px);
+  border-bottom-right-radius: inherit;
   background: linear-gradient(
-    135deg,
-    transparent 72%,
-    rgb(255 255 255 / 90%) 72%
+    to top left,
+    var(--surface, #fff) 50%,
+    transparent 50%
   );
   pointer-events: none;
+}
+.heatmap-cell.overflow-allocation-mark {
+  /* At least 3px so it survives 4px tiles; at most 7px on large tiles. */
+  --overflow-mark-size: clamp(
+    3px,
+    calc(var(--heatmap-cell-size) * 0.34),
+    7px
+  );
+}
+.legend-item > i.overflow-allocation-mark {
+  --overflow-mark-size: 5px;
 }

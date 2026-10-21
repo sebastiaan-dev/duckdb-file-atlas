@@ -1,5 +1,6 @@
 node_modules/
 /dist/
+/dist-workshop/
 *.tsbuildinfo
 .DS_Store
 *.duckdb

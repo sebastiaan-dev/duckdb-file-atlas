@@ -7,6 +7,10 @@
     "dev": "bun scripts/fetch-duckdb-runtime.ts && vite --host 127.0.0.1",
     "build": "bun scripts/fetch-duckdb-runtime.ts && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "workshop:dev": "vite --config workshop/vite.config.ts",
+    "workshop:build": "vite build --config workshop/vite.config.ts",
+    "workshop:preview": "vite preview --config workshop/vite.config.ts",
+    "workshop:test": "bun run workshop:build && playwright test --config workshop/tests/playwright.config.ts",
     "test": "bun test",
     "test:browser": "playwright test --config tests/browser/playwright.config.ts",
     "inspect": "bun scripts/inspect.ts",
@@ -37,6 +41,7 @@
     "@types/react-dom": "^19.1.0",
     "@types/node": "^22.15.0",
     "@types/bun": "latest",
-    "@playwright/test": "^1.64.1"
+    "@playwright/test": "^1.64.1",
+    "reveal.js": "5.2.1"
   }
 }

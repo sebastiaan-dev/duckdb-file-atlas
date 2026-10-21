@@ -1,4 +1,4 @@
-import type { Segment } from "./types";
+import type { FileBlock, Segment } from "./types";
 
 const physicalBlockId = (id: number) => Number.isSafeInteger(id) && id >= 0;
 
@@ -43,4 +43,42 @@ export function indexSegmentsByBlock(
     }
   }
   return index;
+}
+
+/** A file-contiguous stretch of a segment's overflow allocations. */
+export interface OverflowRun {
+  first: FileBlock;
+  last: FileBlock;
+  blocks: number;
+  bytes: number;
+}
+
+/**
+ * Groups a segment's resolvable overflow allocations into file-contiguous runs,
+ * in file order. Adjacent means consecutive IDs whose extents touch, so a run
+ * maps exactly onto a block range on the physical map.
+ */
+export function overflowRuns(
+  segment: Segment,
+  blocksById: ReadonlyMap<number, FileBlock>,
+): OverflowRun[] {
+  const blocks = [...new Set(segment.auxiliaryBlocks ?? [])]
+    .map((id) => blocksById.get(id))
+    .filter((block): block is FileBlock => !!block)
+    .sort((a, b) => a.offset - b.offset);
+  const runs: OverflowRun[] = [];
+  for (const block of blocks) {
+    const run = runs.at(-1);
+    if (
+      run &&
+      block.id === run.last.id + 1 &&
+      block.offset === run.last.offset + run.last.size
+    ) {
+      run.last = block;
+      run.blocks++;
+      run.bytes += block.size;
+    } else
+      runs.push({ first: block, last: block, blocks: 1, bytes: block.size });
+  }
+  return runs;
 }

@@ -557,7 +557,7 @@ export function attachNativeSegments(
       },
       {
         id: `native:${id}:overflow`,
-        label: "Unclassified overflow bytes",
+        label: "Overflow payload (unmeasured)",
         offset: block.offset + 8,
         size: block.size - 8,
         kind: "unknown",

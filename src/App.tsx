@@ -94,7 +94,7 @@ import {
   compressionPalette,
   stableColor,
 } from "@/lib/palette";
-import { formatBytes, formatNumber } from "@/lib/format";
+import { formatBytes, formatNumber, formatOffset } from "@/lib/format";
 import { decodeMetaPointer } from "@/lib/meta-pointer";
 import { describeStatistics } from "@/lib/segment-stats";
 import { readBytes } from "@/lib/reader";
@@ -129,10 +129,6 @@ function shortName(value: string, max = 20) {
 
 function plural(count: number, noun: string) {
   return `${formatNumber(count)} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-function formatOffset(value: number) {
-  return `0x${Math.max(0, value).toString(16).padStart(8, "0")}`;
 }
 
 function InspectorEmptyState({ view }: { view: ViewMode }) {
@@ -442,6 +438,7 @@ function Workspace({
   const revealBlockIndex = Math.max(
     dataBlocks.findIndex((block) => block.id === firstMatchingBlockId),
     dataBlocks.findIndex((block) => block.id === selectedBlockId),
+    dataBlocks.findIndex((block) => block.id === blockRange?.anchor),
   );
   const physicalLayout = useContinuousLayout(
     dataBlocks,
@@ -470,6 +467,11 @@ function Workspace({
   const visibleLogicalUnits = useMemo(
     () => logicalUnits.slice(0, logicalLayout.visibleCount),
     [logicalUnits, logicalLayout.visibleCount],
+  );
+  const hasOverflowSegments = useMemo(
+    () =>
+      inspection.segments.some((segment) => segment.auxiliaryBlocks?.length),
+    [inspection.segments],
   );
   const logicalMetrics = useMemo(
     () => buildLogicalMetrics(inspection.segments),
@@ -1297,6 +1299,7 @@ function Workspace({
                         mode={logicalColorMode}
                         metrics={logicalMetrics}
                         column={valueColumn}
+                        overflow={hasOverflowSegments}
                       />
                       <div className="logical-toolbar-end">
                         {query && (
@@ -1510,6 +1513,10 @@ function Workspace({
                     block={selectedBlock}
                     blocksById={blocksById}
                     onBlockClick={chooseBlock}
+                    onBlockRangeClick={(first, last) => {
+                      selectBlockRange(first, last);
+                      setView("physical");
+                    }}
                     onShowRowGroup={(ref) => {
                       selectRowGroup(ref);
                       setView("physical");
@@ -2387,9 +2394,9 @@ function BlockDetails({
       </div>
       {Boolean(block.overflowSegmentIds?.length) && (
         <p className="section-caption">
-          String overflow allocation referenced by{" "}
-          {plural(block.overflowSegmentIds!.length, "segment")}. Internal usage
-          is not measured; unused bytes and string chain order are unknown.
+          String overflow for{" "}
+          {plural(block.overflowSegmentIds!.length, "segment")}; its contents
+          are not decoded.
         </p>
       )}
       <div className="detail-card">
@@ -2841,9 +2848,11 @@ function SegmentDetails({
   blocksById,
   block,
   onBlockClick,
+  onBlockRangeClick,
   onShowRowGroup,
 }: {
   onShowRowGroup: (ref: RowGroupRef) => void;
+  onBlockRangeClick: (firstId: number, lastId: number) => void;
   colorMetric?: { label: string; description: string };
   segment: Segment;
   inspection: FileInspection;
@@ -2988,35 +2997,38 @@ function SegmentDetails({
         Show row group {formatNumber(segment.rowGroup)} on disk
         <ArrowRight size={13} />
       </button>
-      {block && (
+      {(block || Boolean(segment.auxiliaryBlocks?.length)) && (
         <div className="detail-section">
           <div className="detail-section-heading">
             <span>Physical placement</span>
           </div>
-          <button
-            type="button"
-            className="physical-link-card"
-            onClick={() => onBlockClick(block)}
-          >
-            <span className="physical-link-icon">
-              <Blocks size={15} />
-            </span>
-            <span>
-              <strong>Block {block.id}</strong>
-              <small>
-                {formatOffset(block.offset)} · {formatBytes(block.size)}
-              </small>
-            </span>
-            <ArrowRight size={14} />
-          </button>
+          {block && (
+            <button
+              type="button"
+              className="physical-link-card"
+              onClick={() => onBlockClick(block)}
+            >
+              <span className="physical-link-icon">
+                <Blocks size={15} />
+              </span>
+              <span>
+                <strong>Block {block.id}</strong>
+                <small>
+                  {formatOffset(block.offset)} · {formatBytes(block.size)}
+                </small>
+              </span>
+              <ArrowRight size={14} />
+            </button>
+          )}
+          <OverflowAllocations
+            key={segment.id}
+            segment={segment}
+            blocksById={blocksById}
+            onBlockClick={onBlockClick}
+            onRangeClick={onBlockRangeClick}
+          />
         </div>
       )}
-      <OverflowAllocations
-        key={segment.id}
-        segment={segment}
-        blocksById={blocksById}
-        onBlockClick={onBlockClick}
-      />
       {!inspection.native && (
         <div className="inspector-note">
           <FileCode2 size={14} />

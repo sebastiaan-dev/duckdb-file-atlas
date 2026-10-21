@@ -264,9 +264,9 @@ export const PhysicalLegend = memo(function PhysicalLegend({
           <p>{EXPLANATIONS[mode]}</p>
           {presence.overflow && (
             <p>
-              A white corner marks string-overflow allocations. In ownership
-              modes their colors follow the referencing segments; internal usage
-              remains unmeasured.
+              A clipped corner marks string-overflow allocations. In ownership
+              modes they take the color of the segments that reference them;
+              usage inside them is not measured.
             </p>
           )}
           <p>

@@ -16,3 +16,8 @@ export function formatNumber(value: number | null | undefined) {
     ? "Unknown"
     : numberFormatter.format(value);
 }
+
+/** Zero-padded hexadecimal file offset, e.g. 0x00013000. */
+export function formatOffset(value: number) {
+  return `0x${Math.max(0, value).toString(16).padStart(8, "0")}`;
+}

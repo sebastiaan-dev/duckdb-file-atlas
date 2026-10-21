@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { attachNativeSegments } from "../src/lib/checkpoint-reader";
 import {
   indexSegmentsByBlock,
+  overflowRuns,
   segmentBlockIds,
   segmentTouchesBlock,
 } from "../src/lib/overflow";
@@ -145,5 +146,48 @@ describe("native overflow allocation attachment", () => {
         }),
       ]),
     ).toThrow(/overflow block pointer/);
+  });
+});
+
+describe("overflow runs", () => {
+  const blocksById = (blocks: FileBlock[]) =>
+    new Map(blocks.map((block) => [block.id, block]));
+  const block = (id: number, offset = 12_288 + id * 1024): FileBlock => ({
+    ...fixture()[0],
+    id,
+    offset,
+    role: "overflow",
+  });
+  const summary = (segment: Segment, blocks: FileBlock[]) =>
+    overflowRuns(segment, blocksById(blocks)).map((run) => [
+      run.first.id,
+      run.last.id,
+      run.blocks,
+      run.bytes,
+    ]);
+
+  test("groups file-contiguous allocations in file order and deduplicates", () => {
+    const blocks = [1, 2, 3, 5, 6, 9].map((id) => block(id));
+    expect(
+      summary(segment("a", { auxiliaryBlocks: [9, 3, 1, 2, 2, 6, 5] }), blocks),
+    ).toEqual([
+      [1, 3, 3, 3072],
+      [5, 6, 2, 2048],
+      [9, 9, 1, 1024],
+    ]);
+  });
+
+  test("splits consecutive IDs whose extents do not touch and skips unknown IDs", () => {
+    // Consecutive IDs only form a range when the blocks are also adjacent.
+    const blocks = [block(1), block(2, 99_999)];
+    expect(
+      summary(segment("a", { auxiliaryBlocks: [1, 2, 404] }), blocks),
+    ).toEqual([
+      [1, 1, 1, 1024],
+      [2, 2, 1, 1024],
+    ]);
+    expect(summary(segment("a", { auxiliaryBlocks: undefined }), blocks)).toEqual(
+      [],
+    );
   });
 });

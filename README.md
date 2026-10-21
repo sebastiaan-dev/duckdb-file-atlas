@@ -38,6 +38,15 @@ Use the physical grid as the default map: its positions preserve disk-offset ord
 
 The layouts share selection and pointer highlighting. The selected block's byte strip and range-list swatches follow the main physical-map color setting, without a separate selector or legend. Table, column, and compression colors match the map's palettes; space-used and internal-free-space modes use the same measured block ramp. Unused bytes inside allocated blocks have a pale green fill; whole reusable free blocks use the same neutral fill as **Free** on the map, so they are never confused with index teal. Unknown bytes stay hatched in every mode. Colors never infer unrecorded segment sizes. Animated transitions, predicate/zonemap pruning, and compressed vector decoding remain follow-up work.
 
+## Compression workshop
+
+A standalone Reveal.js developer workshop lives in [`workshop/`](workshop/README.md):
+39 teaching slides, six chapter dividers, and speaker notes in a DuckDB keynote-inspired
+style, a timed 90-minute script (plus a 60-minute route),
+a participant worksheet, pinned source references, and reproducible CLI exercises.
+Run `bun run workshop:dev` to present it, or `bun run workshop:build` for an independent
+static build. It does not load the app or download DuckDB-WASM assets.
+
 ## Run it
 
 ```sh

@@ -13,10 +13,13 @@ export function LogicalColorLegend({
   mode,
   metrics,
   column,
+  overflow,
 }: {
   mode: LogicalColorMode;
   metrics: LogicalMetrics;
   column?: ValueColumn;
+  /** Some segments reference string-overflow blocks. */
+  overflow?: boolean;
 }) {
   const ramp =
     mode === "relative-footprint"
@@ -110,6 +113,15 @@ export function LogicalColorLegend({
         <i className="logical-constant-swatch" />
         No data block
       </span>
+      {overflow && (
+        <span className="legend-item">
+          <i
+            className="overflow-allocation-mark"
+            style={{ background: "var(--muted)" }}
+          />
+          Has overflow
+        </span>
+      )}
     </div>
   );
 }
