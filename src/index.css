@@ -758,13 +758,12 @@ a.open-file-button {
   background: var(--chart-unknown);
   pointer-events: none;
 }
-.tile-size-control > span,
-.tile-size-control output {
+.tile-size-control > span {
   position: relative;
   z-index: 1;
   pointer-events: none;
 }
-.tile-size-control input {
+.tile-size-control input[type="range"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -775,15 +774,15 @@ a.open-file-button {
   -webkit-appearance: none;
   cursor: ew-resize;
 }
-.tile-size-control input::-webkit-slider-runnable-track {
+.tile-size-control input[type="range"]::-webkit-slider-runnable-track {
   height: 100%;
   background: transparent;
 }
-.tile-size-control input::-moz-range-track {
+.tile-size-control input[type="range"]::-moz-range-track {
   height: 100%;
   background: transparent;
 }
-.tile-size-control input::-webkit-slider-thumb {
+.tile-size-control input[type="range"]::-webkit-slider-thumb {
   width: var(--thumb);
   height: 30px;
   border: 0;
@@ -792,7 +791,7 @@ a.open-file-button {
   -webkit-appearance: none;
   appearance: none;
 }
-.tile-size-control input::-moz-range-thumb {
+.tile-size-control input[type="range"]::-moz-range-thumb {
   width: var(--thumb);
   height: 30px;
   border: 0;
@@ -800,7 +799,7 @@ a.open-file-button {
   background: linear-gradient(var(--subtle), var(--subtle)) center / 2px 16px
     no-repeat;
 }
-.tile-size-control:has(input:focus-visible) {
+.tile-size-control:has(input[type="range"]:focus-visible) {
   outline: 2px solid var(--chart-primary);
   outline-offset: 3px;
 }
@@ -808,15 +807,42 @@ a.open-file-button {
   border-color: color-mix(in srgb, var(--muted), var(--line) 65%);
 }
 .tile-size-control:hover input::-webkit-slider-thumb,
-.tile-size-control:has(input:focus-visible) input::-webkit-slider-thumb {
+.tile-size-control:has(input[type="range"]:focus-visible) input::-webkit-slider-thumb {
   background-image: linear-gradient(var(--muted), var(--muted));
 }
-.tile-size-control output {
+/* Editable readout: sits above the scrubber and accepts typed sizes. */
+.tile-size-entry {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+.tile-size-entry input {
+  width: 3ch;
+  padding: 1px 2px;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  pointer-events: auto;
+  cursor: text;
+}
+/* Surface-colored so it stands out over both the filled and empty track. */
+.tile-size-entry input:hover {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.tile-size-entry input:focus {
+  outline: 2px solid var(--chart-primary);
+  outline-offset: 0;
+  background: var(--surface);
+}
 .tile-size-control:hover > span,
-.tile-size-control:has(input:focus-visible) > span {
+.tile-size-control:has(input[type="range"]:focus-visible) > span {
   color: var(--ink);
 }
 @media (max-width: 600px) {
@@ -3345,10 +3371,10 @@ strong.index-selected-size {
   }
 }
 /* A fixed-width readout keeps the slider from shifting under the pointer. */
-.tile-size-control output {
+.tile-size-entry {
   flex: none;
-  width: 5ch;
-  text-align: right;
+  width: 6ch;
+  justify-content: flex-end;
   white-space: nowrap;
 }
 

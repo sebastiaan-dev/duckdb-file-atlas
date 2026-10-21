@@ -49,7 +49,8 @@ test("default tiles are 24 px squares, compact tiles fill available width withou
 }) => {
   await openMap(page);
   await expectGeometry(page, 24);
-  await expect(page.locator(".tile-size-control output")).toHaveText("24 px");
+  const entry = page.getByRole("textbox", { name: "Block tile size in pixels" });
+  await expect(entry).toHaveValue("24");
   await page.getByRole("slider", { name: "Block tile size" }).fill("8");
   const columns = await expectGeometry(page, 8);
   expect(columns).toBeGreaterThan(32);
@@ -61,7 +62,7 @@ test("default tiles are 24 px squares, compact tiles fill available width withou
       ),
   ).toEqual(Array.from({ length: 200 }, (_, i) => i));
   await expect(page.locator(".zoom-buttons")).toHaveCount(0);
-  await expect(page.locator(".tile-size-control output")).toHaveText("8 px");
+  await expect(entry).toHaveValue("8");
 });
 
 test("slider supports all pixel sizes and resizing preserves block selection, byte paging and column-aware keyboard navigation", async ({
@@ -118,7 +119,9 @@ test("visible slider follows its value with a stable readout and keyboard focus 
     ] as const) {
       await slider.press(key);
       await expect(slider).toHaveValue(String(size));
-      await expect(control.locator("output")).toHaveText(`${size} px`);
+      await expect(
+        control.getByRole("textbox", { name: "Block tile size in pixels" }),
+      ).toHaveValue(String(size));
       // The readout width never moves the track under the pointer.
       const box = (await slider.boundingBox())!;
       expect(box.x).toBeCloseTo(initial.x, 0);
@@ -131,7 +134,7 @@ test("visible slider follows its value with a stable readout and keyboard focus 
       ).toBe("1");
     }
   }
-  await expect(control.locator("span")).toHaveText("Tile size");
+  await expect(control.locator("> span").first()).toHaveText("Tile size");
 });
 
 test("the full inset control accepts pointer input and updates the map", async ({
@@ -227,4 +230,55 @@ test("changing tile size dismisses stale tooltip anchors, and pointer inspection
   await expect(
     page.getByRole("heading", { name: "Block 100", exact: true }),
   ).toBeVisible();
+});
+
+test("typing a tile size overrides the slider range, clamps, and reverts invalid input", async ({
+  page,
+}) => {
+  await openMap(page);
+  const slider = page.getByRole("slider", { name: "Block tile size" });
+  const entry = page.getByRole("textbox", { name: "Block tile size in pixels" });
+  // Beyond the slider's maximum: the map follows, the thumb pins at its end.
+  await entry.fill("40");
+  await entry.press("Enter");
+  await expectGeometry(page, 40);
+  await expect(entry).toHaveValue("40");
+  await expect(slider).toHaveValue("24");
+  await expect(slider).toHaveAttribute("aria-valuetext", "40 pixel tiles");
+  // Below the slider's minimum, committed on blur.
+  await entry.fill("3");
+  await entry.blur();
+  await expectGeometry(page, 3);
+  await expect(slider).toHaveValue("4");
+  // Out-of-range input clamps to 2–64; fractions round.
+  await entry.fill("500");
+  await entry.press("Enter");
+  await expectGeometry(page, 64);
+  await expect(entry).toHaveValue("64");
+  await entry.fill("1");
+  await entry.press("Enter");
+  await expectGeometry(page, 2);
+  await entry.fill("9.6");
+  await entry.press("Enter");
+  await expectGeometry(page, 10);
+  // Arrow keys step immediately; Escape and garbage revert to the current size.
+  await entry.press("ArrowUp");
+  await expectGeometry(page, 11);
+  await entry.fill("abc");
+  await entry.press("Enter");
+  await expect(entry).toHaveValue("11");
+  await entry.fill("20");
+  await entry.press("Escape");
+  await expect(entry).toHaveValue("11");
+  await expectGeometry(page, 11);
+  // A partial entry does not relayout until it is committed.
+  await entry.fill("1");
+  await expectGeometry(page, 11);
+  await entry.fill("16");
+  await entry.press("Enter");
+  await expectGeometry(page, 16);
+  // The slider takes over again from a typed size.
+  await slider.press("End");
+  await expect(entry).toHaveValue("24");
+  await expectGeometry(page, 24);
 });

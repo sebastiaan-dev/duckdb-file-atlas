@@ -82,6 +82,7 @@ import { useContinuousLayout } from "@/hooks/use-continuous-layout";
 import { BlockHeatmap } from "@/components/block-heatmap";
 import { DetailTip, InfoTip } from "@/components/detail-tooltip";
 import { PhysicalLegend } from "@/components/physical-legend";
+import { TileSizeControl } from "@/components/tile-size-control";
 import { OverflowAllocations } from "@/components/overflow-allocations";
 import {
   indexSegmentsByBlock,
@@ -1192,29 +1193,10 @@ function Workspace({
                           );
                         })}
                       </div>
-                      <label
-                        className="tile-size-control"
-                        style={
-                          {
-                            "--tile-fill": (cellSize - 4) / (24 - 4),
-                          } as React.CSSProperties
-                        }
-                      >
-                        <span>Tile size</span>
-                        <input
-                          type="range"
-                          aria-label="Block tile size"
-                          aria-valuetext={`${cellSize} pixel tiles`}
-                          min={4}
-                          max={24}
-                          step={1}
-                          value={cellSize}
-                          onChange={(event) =>
-                            setCellSize(Number(event.target.value))
-                          }
-                        />
-                        <output>{cellSize} px</output>
-                      </label>
+                      <TileSizeControl
+                        value={cellSize}
+                        onChange={setCellSize}
+                      />
                     </div>
                     <PhysicalLegend
                       mode={colorMode}

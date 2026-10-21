@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { heatmapLayout } from "../src/lib/heatmap-layout";
+import { clampTileSize, heatmapLayout } from "../src/lib/heatmap-layout";
 
 test("min, default, and max tiles fit phone and desktop widths without a column cap", () => {
   for (const width of [320, 375, 800, 1092, 1920, 3840]) {
-    for (const cellSize of [4, 7, 8, 24]) {
+    for (const cellSize of [2, 4, 7, 8, 24, 64]) {
       const layout = heatmapLayout(width, cellSize);
       expect(layout.cellSize).toBe(cellSize);
       expect(layout.gap).toBe(cellSize < 8 ? 1 : 2);
@@ -21,10 +21,10 @@ test("min, default, and max tiles fit phone and desktop widths without a column 
   expect(heatmapLayout(1920, 4).columns).toBe(374);
 });
 
-test("cell size is bounded to 4–24 pixels, with an 8px non-finite fallback", () => {
-  expect(heatmapLayout(800, -10).cellSize).toBe(4);
-  expect(heatmapLayout(800, 0).cellSize).toBe(4);
-  expect(heatmapLayout(800, 100).cellSize).toBe(24);
+test("cell size is bounded to 2–64 pixels, with an 8px non-finite fallback", () => {
+  expect(heatmapLayout(800, -10).cellSize).toBe(2);
+  expect(heatmapLayout(800, 0).cellSize).toBe(2);
+  expect(heatmapLayout(800, 100).cellSize).toBe(64);
   for (const size of [NaN, Infinity, -Infinity]) {
     expect(heatmapLayout(800, size).cellSize).toBe(8);
   }
@@ -62,4 +62,13 @@ test("axis ticks reserve enough horizontal space for multi-digit column indices"
       expect((tickStride - 1) * (cellSize + gap)).toBeLessThan(tickWidth);
     }
   }
+});
+
+test("typed tile sizes round to whole pixels within 2–64", () => {
+  expect(clampTileSize(1)).toBe(2);
+  expect(clampTileSize(-5)).toBe(2);
+  expect(clampTileSize(12.4)).toBe(12);
+  expect(clampTileSize(12.5)).toBe(13);
+  expect(clampTileSize(40)).toBe(40);
+  expect(clampTileSize(1000)).toBe(64);
 });
