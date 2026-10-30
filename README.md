@@ -1,5 +1,7 @@
 # DuckDB File Atlas
 
+<img width="1194" height="602" alt="Screenshot 2026-10-30 at 21 21 13" src="https://github.com/user-attachments/assets/d31cd9ce-1180-4274-9706-dfaa3639b72e" />
+
 DuckDB File Atlas reads a local DuckDB database directly in your browser. It traverses the active checkpoint’s catalog, table, row-group, and column metadata, then builds a linked physical block map and logical segment inspector. No metadata sidecar, DuckDB runtime, upload, or server is needed for inspection of supported storage formats 64–69 (`v1.0.0` through `v2.0.0`). An optional, lazily loaded DuckDB-WASM runtime can generate a real TPC-H database in the browser.
 
 The parser runs in a background worker, reads bounded slices of the file, and verifies each metadata block it traverses. Segment sizes come from the checkpoint’s optional `byte_size` field. Constants that have no physical block occupy zero physical bytes, even when DuckDB records a nonzero codec size.
